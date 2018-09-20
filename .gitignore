@@ -1,0 +1,31 @@
+#
+# Cargo related
+#
+target
+Cargo.lock
+*.rs.bk
+
+#
+# General dev related - makefile quick build install
+#
+makefile
+
+#
+# Sublime Text
+#
+*.sublime-workspace
+*.sublime-project
+
+#
+# VSCode related
+#
+.vscode
+
+#
+# Project related
+#
+
+#
+# OS related
+#
+.DS_Store
