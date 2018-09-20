@@ -10,6 +10,7 @@ extern crate crossbeam_channel;
 extern crate dirs;
 #[macro_use]
 extern crate itertools;
+#[macro_use]
 extern crate failure;
 extern crate reqwest;
 extern crate strum;
@@ -231,9 +232,11 @@ fn run() -> Result<(), Error> {
         // Filter out data already in the databse
         .filter(|(site, model, init_time)| !arch.exists(site, *model, init_time).unwrap_or(false))
         // Add the url
-        .map(|(site, model, init_time)| {
-            let url = build_url(&site, model, &init_time);
-            (site, model, init_time, url)
+        .filter_map(|(site, model, init_time)| {
+            match build_url(&site, model, &init_time){
+                Ok(url) => Some((site, model, init_time, url)),
+                Err(_) => None,
+            }
         })
         .for_each(move |list_val: (String, Model, NaiveDateTime, String)|{
             main_tx.send(list_val);
@@ -327,7 +330,7 @@ fn invalid_combination(site: &str, model: Model) -> bool {
     }
 }
 
-fn build_url(site: &str, model: Model, init_time: &NaiveDateTime) -> String {
+fn build_url(site: &str, model: Model, init_time: &NaiveDateTime) -> Result<String, Error> {
     let site = site.to_lowercase();
 
     let year = init_time.year();
@@ -339,13 +342,14 @@ fn build_url(site: &str, model: Model, init_time: &NaiveDateTime) -> String {
         (Model::NAM, 6) | (Model::NAM, 18) => "namm",
         (Model::NAM, _) => "nam",
         (Model::NAM4KM, _) => "nam4km",
+        _=> return Err(format_err!("Invalid model for download")),
     };
 
     let remote_site = translate_sites(&site, model);
 
     let remote_file_name = remote_model.to_string() + "_" + remote_site + ".buf";
 
-    format!(
+    Ok(format!(
         "{}{}/{:02}/{:02}/bufkit/{:02}/{}/{}",
         HOST_URL,
         year,
@@ -354,7 +358,7 @@ fn build_url(site: &str, model: Model, init_time: &NaiveDateTime) -> String {
         hour,
         model.to_string().to_lowercase(),
         remote_file_name
-    )
+    ))
 }
 
 fn translate_sites(site: &str, model: Model) -> &str {
