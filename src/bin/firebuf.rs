@@ -1,8 +1,10 @@
 //! firebuf - Calculate fire weather indicies from soundings in your Bufkit Archive.
-extern crate bfkmd;
+
 extern crate bufkit_data;
 extern crate chrono;
+#[macro_use]
 extern crate clap;
+extern crate dirs;
 extern crate failure;
 extern crate sounding_analysis;
 extern crate sounding_base;
@@ -13,10 +15,10 @@ extern crate strum_macros;
 extern crate textplots;
 extern crate unicode_width;
 
-use bfkmd::CommonCmdLineArgs;
 use bufkit_data::{Archive, Model};
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike};
-use clap::Arg;
+use clap::{App, Arg};
+use dirs::home_dir;
 use failure::{Error, Fail};
 use sounding_base::Sounding;
 use sounding_bufkit::BufkitData;
@@ -70,7 +72,10 @@ fn run() -> Result<(), Error> {
 }
 
 fn parse_args() -> Result<CmdLineArgs, Error> {
-    let app = CommonCmdLineArgs::new_app("firebuf", "Fire weather analysis & summary.")
+    let app = App::new("firebuf")
+        .author("Ryan Leach <clumsycodemonkey@gmail.com>")
+        .version(crate_version!())
+        .about("Fire weather analysis & summary.")
         .arg(
             Arg::with_name("sites")
                 .multiple(true)
@@ -155,14 +160,21 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                 .help("Print the results to the terminal."),
         );
 
-    let (common_args, matches) = CommonCmdLineArgs::matches(app)?;
+    let matches = app.get_matches();
+
+    let root = matches
+        .value_of("root")
+        .map(PathBuf::from)
+        .or_else(|| home_dir().and_then(|hd| Some(hd.join("bufkit"))))
+        .expect("Invalid root.");
+    let root_clone = root.clone();
 
     let bail = |msg: &str| -> ! {
         println!("{}", msg);
         ::std::process::exit(1);
     };
 
-    let arch = match Archive::connect(common_args.root()) {
+    let arch = match Archive::connect(root) {
         arch @ Ok(_) => arch,
         err @ Err(_) => {
             println!("Unable to connect to db, printing error and exiting.");
@@ -170,7 +182,6 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
         }
     }?;
 
-    let root = common_args.root().to_path_buf();
     let mut sites: Vec<String> = matches
         .values_of("sites")
         .into_iter()
@@ -258,7 +269,7 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
     });
 
     Ok(CmdLineArgs {
-        root,
+        root: root_clone,
         sites,
         models,
         init_time,

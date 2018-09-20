@@ -2,25 +2,27 @@
 //!
 //! Downloads Bufkit files and stores them in your archive.
 
-extern crate bfkmd;
 extern crate bufkit_data;
 extern crate chrono;
+#[macro_use]
 extern crate clap;
 extern crate crossbeam_channel;
+extern crate dirs;
 #[macro_use]
 extern crate itertools;
 extern crate failure;
 extern crate reqwest;
 extern crate strum;
 
-use bfkmd::CommonCmdLineArgs;
 use bufkit_data::{Archive, BufkitDataErr, Model};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
-use clap::{Arg, ArgMatches};
+use clap::{App, Arg, ArgMatches};
 use crossbeam_channel as channel;
+use dirs::home_dir;
 use failure::{Error, Fail};
 use reqwest::{Client, StatusCode};
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::thread::{spawn, JoinHandle};
 use strum::IntoEnumIterator;
@@ -59,7 +61,10 @@ enum StepResult {
 }
 
 fn run() -> Result<(), Error> {
-    let app = CommonCmdLineArgs::new_app("bufdn", "Download data into your archive.")
+    let app = App::new("bufdn")
+        .author("Ryan Leach <clumsycodemonkey@gmail.com>")
+        .version(crate_version!())
+        .about("Download data into your archive.")
         .arg(
             Arg::with_name("sites")
                 .multiple(true)
@@ -112,10 +117,16 @@ fn run() -> Result<(), Error> {
                 )),
         );
 
-    let (common_args, matches) = CommonCmdLineArgs::matches(app)?;
-    let root_clone = common_args.root().to_path_buf();
+    let matches = app.get_matches();
 
-    let arch = Archive::connect(common_args.root())?;
+    let root = matches
+        .value_of("root")
+        .map(PathBuf::from)
+        .or_else(|| home_dir().and_then(|hd| Some(hd.join("bufkit"))))
+        .expect("Invalid root.");
+    let root_clone = root.clone();
+
+    let arch = Archive::connect(root)?;
 
     let main_tx: channel::Sender<(String, Model, NaiveDateTime, String)>;
     let dl_rx: channel::Receiver<(String, Model, NaiveDateTime, String)>;

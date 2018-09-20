@@ -2,18 +2,22 @@
 extern crate bfkmd;
 extern crate bufkit_data;
 extern crate chrono;
+#[macro_use]
 extern crate clap;
+extern crate dirs;
 extern crate failure;
+extern crate sounding_bufkit;
 extern crate strum;
 
-use bfkmd::CommonCmdLineArgs;
-use bufkit_data::{Archive, Model, Site, StateProv};
+use bufkit_data::{Archive, BufkitDataErr, Model, Site, StateProv};
 use chrono::{NaiveDate, NaiveDateTime};
-use clap::{Arg, ArgMatches, SubCommand};
+use clap::{App, Arg, ArgMatches, SubCommand};
+use dirs::home_dir;
 use failure::{err_msg, Error, Fail};
+use sounding_bufkit::BufkitFile;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use strum::{AsStaticRef, IntoEnumIterator};
 
@@ -38,15 +42,32 @@ fn main() {
 }
 
 fn run() -> Result<(), Error> {
-    let app = CommonCmdLineArgs::new_app("bkam", "Manage a Bufkit file archive.")
-        .subcommand(
+    let app = App::new("bkam")
+        .author("Ryan Leach <clumsycodemonkey@gmail.com>")
+        .version(crate_version!())
+        .about("Manage a Bufkit file archive.")
+        .arg(
+            Arg::with_name("root")
+                .short("r")
+                .long("root")
+                .takes_value(true)
+                .help("Set the root of the archive.")
+                .long_help(
+                    "Set the root directory of the archive you are invoking this command for.",
+                ).conflicts_with("create")
+                .global(true),
+        ).subcommand(
             SubCommand::with_name("create")
                 .about("Create a new archive.")
                 .arg(
                     Arg::with_name("force")
                         .long("force")
                         .help("Overwrite any existing archive at `root`."),
-                ),
+                ).arg(
+                    Arg::with_name("archive_root")
+                        .index(1)
+                        .help("The path to create this archive at."),
+                ).after_help("The -r, --root option is ignored with this command."),
         ).subcommand(
             SubCommand::with_name("sites")
                 .about("View and manipulate site data.")
@@ -164,52 +185,84 @@ fn run() -> Result<(), Error> {
                         .required(true)
                         .help("Target directory to save the export file into."),
                 ),
+        ).subcommand(
+            SubCommand::with_name("import")
+                .about("Import a text file into the database.")
+                .arg(
+                    Arg::with_name("site")
+                        .index(1)
+                        .required(true)
+                        .help("The site to export data for."),
+                ).arg(
+                    Arg::with_name("model")
+                        .index(2)
+                        .required(true)
+                        .help("The model to export data for, e.g. gfs, GFS, NAM4KM, nam."),
+                ).arg(
+                    Arg::with_name("file")
+                        .index(3)
+                        .required(true)
+                        .multiple(true)
+                        .help("Source file to import."),
+                ),
         );
 
-    let (common_args, matches) = CommonCmdLineArgs::matches(app)?;
+    let matches = app.get_matches();
+
+    let root = &matches
+        .value_of("root")
+        .map(PathBuf::from)
+        .or_else(|| home_dir().and_then(|hd| Some(hd.join("bufkit"))))
+        .expect("Invalid root.");
 
     match matches.subcommand() {
-        ("create", Some(sub_args)) => create(common_args, sub_args)?,
-        ("sites", Some(sub_args)) => sites(common_args, sub_args)?,
-        ("export", Some(sub_args)) => export(common_args, sub_args)?,
+        ("create", Some(sub_args)) => create(root, sub_args)?,
+        ("sites", Some(sub_args)) => sites(root, sub_args)?,
+        ("export", Some(sub_args)) => export(root, sub_args)?,
+        ("import", Some(sub_args)) => import(root, sub_args)?,
         _ => unreachable!(),
     }
 
     Ok(())
 }
 
-fn create(common_args: CommonCmdLineArgs, sub_args: &ArgMatches) -> Result<(), Error> {
+fn create(_root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
+    let root = &sub_args
+        .value_of("archive_root")
+        .map(PathBuf::from)
+        .or_else(|| home_dir().and_then(|hd| Some(hd.join("bufkit"))))
+        .expect("Invalid root.");
     // Check if the archive already exists. (try connecting to it)
-    let already_exists: bool = Archive::connect(common_args.root()).is_ok();
+    let already_exists: bool = Archive::connect(root).is_ok();
 
     if already_exists && sub_args.is_present("force") {
-        ::std::fs::remove_dir_all(common_args.root())?;
+        ::std::fs::remove_dir_all(root)?;
     } else if already_exists {
         return Err(err_msg(
             "Archive already exists, must use --force to overwrite.",
         ));
     }
 
-    Archive::create_new(common_args.root())?;
+    Archive::create_new(root)?;
 
     Ok(())
 }
 
-fn sites(common_args: CommonCmdLineArgs, sub_args: &ArgMatches) -> Result<(), Error> {
+fn sites(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
     match sub_args.subcommand() {
-        ("list", Some(sub_sub_args)) => sites_list(common_args, sub_args, &sub_sub_args),
-        ("modify", Some(sub_sub_args)) => sites_modify(common_args, sub_args, &sub_sub_args),
-        ("inv", Some(sub_sub_args)) => sites_inventory(common_args, sub_args, &sub_sub_args),
+        ("list", Some(sub_sub_args)) => sites_list(root, sub_args, &sub_sub_args),
+        ("modify", Some(sub_sub_args)) => sites_modify(root, sub_args, &sub_sub_args),
+        ("inv", Some(sub_sub_args)) => sites_inventory(root, sub_args, &sub_sub_args),
         _ => unreachable!(),
     }
 }
 
 fn sites_list(
-    common_args: CommonCmdLineArgs,
+    root: &PathBuf,
     _sub_args: &ArgMatches,
     sub_sub_args: &ArgMatches,
 ) -> Result<(), Error> {
-    let arch = Archive::connect(common_args.root())?;
+    let arch = Archive::connect(root)?;
 
     //
     // This filter lets all sites pass
@@ -310,11 +363,11 @@ fn sites_list(
 }
 
 fn sites_modify(
-    common_args: CommonCmdLineArgs,
+    root: &PathBuf,
     _sub_args: &ArgMatches,
     sub_sub_args: &ArgMatches,
 ) -> Result<(), Error> {
-    let arch = Archive::connect(common_args.root())?;
+    let arch = Archive::connect(root)?;
 
     // Safe to unwrap because the argument is required.
     let site = sub_sub_args.value_of("site").unwrap();
@@ -348,11 +401,11 @@ fn sites_modify(
 }
 
 fn sites_inventory(
-    common_args: CommonCmdLineArgs,
+    root: &PathBuf,
     _sub_args: &ArgMatches,
     sub_sub_args: &ArgMatches,
 ) -> Result<(), Error> {
-    let arch = Archive::connect(common_args.root())?;
+    let arch = Archive::connect(root)?;
 
     // Safe to unwrap because the argument is required.
     let site = sub_sub_args.value_of("site").unwrap();
@@ -384,13 +437,13 @@ fn sites_inventory(
     Ok(())
 }
 
-fn export(common_args: CommonCmdLineArgs, sub_args: &ArgMatches) -> Result<(), Error> {
+fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
     let bail = |msg: &str| -> ! {
         println!("{}", msg);
         ::std::process::exit(1);
     };
 
-    let arch = Archive::connect(common_args.root())?;
+    let arch = Archive::connect(root)?;
 
     // unwrap is ok, these are required.
     let site = sub_args.value_of("site").unwrap();
@@ -460,6 +513,53 @@ fn export(common_args: CommonCmdLineArgs, sub_args: &ArgMatches) -> Result<(), E
         let mut f = File::create(save_path)?;
         let mut bw = BufWriter::new(f);
         bw.write_all(data.as_bytes())?;
+    }
+
+    Ok(())
+}
+
+fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
+    let bail = |msg: &str| -> ! {
+        println!("{}", msg);
+        ::std::process::exit(1);
+    };
+
+    let arch = Archive::connect(root)?;
+
+    // unwrap is ok, these are required.
+    let site = sub_args.value_of("site").unwrap();
+    let model = sub_args.value_of("model").unwrap();
+
+    let files: Vec<PathBuf> = sub_args
+        .values_of("file")
+        .into_iter()
+        .flat_map(|file_iter| file_iter.map(|file| PathBuf::from(file)))
+        .collect();
+
+    //
+    // Validate required arguments.
+    //
+    let model = match Model::from_str(model) {
+        Ok(model) => model,
+        Err(_) => {
+            bail(&format!("Model {} does not exist in the archive!", model));
+        }
+    };
+
+    for file in files {
+        let f = BufkitFile::load(&file)?;
+        let data = f.data()?;
+
+        let anal = data
+            .into_iter()
+            .nth(0)
+            .ok_or(BufkitDataErr::NotEnoughData)?;
+        let init_time = anal
+            .sounding()
+            .get_valid_time()
+            .ok_or(BufkitDataErr::NotEnoughData)?;
+
+        arch.add_file(site, model, &init_time, f.raw_text())?;
     }
 
     Ok(())
