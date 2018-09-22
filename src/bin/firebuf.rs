@@ -158,6 +158,16 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                 .default_value("y")
                 .takes_value(true)
                 .help("Print the results to the terminal."),
+        ).arg(
+            Arg::with_name("root")
+                .short("r")
+                .long("root")
+                .takes_value(true)
+                .help("Set the root of the archive.")
+                .long_help(
+                    "Set the root directory of the archive you are invoking this command for.",
+                ).conflicts_with("create")
+                .global(true),
         );
 
     let matches = app.get_matches();

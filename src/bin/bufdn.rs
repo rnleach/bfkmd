@@ -116,6 +116,16 @@ fn run() -> Result<(), Error> {
                     "The initialization time of the last model run to download.",
                     " Format is YYYY-MM-DD-HH. This requires the --start option too."
                 )),
+        ).arg(
+            Arg::with_name("root")
+                .short("r")
+                .long("root")
+                .takes_value(true)
+                .help("Set the root of the archive.")
+                .long_help(
+                    "Set the root directory of the archive you are invoking this command for.",
+                ).conflicts_with("create")
+                .global(true),
         );
 
     let matches = app.get_matches();
@@ -342,7 +352,7 @@ fn build_url(site: &str, model: Model, init_time: &NaiveDateTime) -> Result<Stri
         (Model::NAM, 6) | (Model::NAM, 18) => "namm",
         (Model::NAM, _) => "nam",
         (Model::NAM4KM, _) => "nam4km",
-        _=> return Err(format_err!("Invalid model for download")),
+        _ => return Err(format_err!("Invalid model for download")),
     };
 
     let remote_site = translate_sites(&site, model);
