@@ -174,7 +174,7 @@ fn run() -> Result<(), Error> {
                         }
                     }
                     StatusCode::NotFound => StepResult::URLNotFound(url),
-                    code @ _ => StepResult::OtherURLStatus(url, code),
+                    code => StepResult::OtherURLStatus(url, code),
                 },
                 Err(err) => StepResult::OtherDownloadError(err.into()),
             };

@@ -4,6 +4,7 @@ extern crate bufkit_data;
 extern crate chrono;
 #[macro_use]
 extern crate clap;
+extern crate csv;
 extern crate dirs;
 extern crate failure;
 extern crate sounding_analysis;
@@ -23,6 +24,7 @@ use failure::{Error, Fail};
 use sounding_base::Sounding;
 use sounding_bufkit::BufkitData;
 use std::collections::HashMap;
+use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
 use strum::{AsStaticRef, IntoEnumIterator};
@@ -51,12 +53,9 @@ fn main() {
 fn run() -> Result<(), Error> {
     let args = &parse_args()?;
 
-    #[cfg(debug_assertions)]
-    println!("{:#?}", args);
-
     let arch = &Archive::connect(&args.root)?;
 
-    for site in args.sites.iter() {
+    for site in &args.sites {
         let stats = &calculate_stats(args, arch, site)?;
 
         if args.print {
@@ -146,9 +145,10 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                 .takes_value(true)
                 .help("Directory to save .csv files to.")
                 .long_help(concat!(
-                    "Directory to save .csv files to. If this is specified then a file 'site.csv'",
-                    " is created for each site in that directory with data for all models and",
-                    " and all statistics."
+                    "Directory to save .csv files to. If this is specified then a file",
+                    " 'site_model.csv' is created for each site and model in that directory with",
+                    " data for each graph statistic specified. The exported data is set by the -g",
+                    " option."
                 )),
         ).arg(
             Arg::with_name("print")
@@ -202,7 +202,7 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
         sites = arch.get_sites()?.into_iter().map(|site| site.id).collect();
     }
 
-    for site in sites.iter() {
+    for site in &sites {
         if !arch.site_exists(site)? {
             println!("Site {} not in the archive, skipping.", site);
         }
@@ -216,7 +216,7 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
         .collect();
 
     if models.is_empty() {
-        models = Model::iter().collect();
+        models = vec![Model::GFS, Model::NAM, Model::NAM4KM];
     }
 
     let mut table_stats: Vec<TableStatArg> = matches
@@ -293,22 +293,24 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
 fn calculate_stats(args: &CmdLineArgs, arch: &Archive, site: &str) -> Result<CalcStats, Error> {
     let mut to_return: CalcStats = CalcStats::new();
 
-    for &model in args.models.iter() {
+    for &model in &args.models {
         let analysis = if let Some(ref init_time) = args.init_time {
             arch.get_file(site, model, init_time)
         } else {
             arch.get_most_recent_file(site, model)
         };
+
         let analysis = match analysis {
             Ok(analysis) => analysis,
             Err(_) => continue,
         };
+
         let analysis = BufkitData::new(&analysis)?;
 
-        let mut model_stats = to_return.stats.entry(model).or_insert(ModelStats::new());
+        let mut model_stats = to_return.stats.entry(model).or_insert_with(ModelStats::new);
 
         let mut curr_time: Option<NaiveDateTime> = None;
-        for anal in analysis.into_iter() {
+        for anal in &analysis {
             let sounding = anal.sounding();
 
             let valid_time = if let Some(valid_time) = sounding.get_valid_time() {
@@ -324,14 +326,14 @@ fn calculate_stats(args: &CmdLineArgs, arch: &Archive, site: &str) -> Result<Cal
 
             let cal_day = (valid_time - Duration::hours(12)).date(); // Daily stats from 12Z to 12Z
 
-            // Build the graph stats
-            for &graph_stat in args.graph_stats.iter() {
-                use GraphStatArg::*;
-
-                let mut graph_stats = model_stats
+            let mut graph_stats = model_stats
                     .graph_stats
-                    .entry(graph_stat)
-                    .or_insert(Vec::new());
+                    .entry(valid_time)
+                    .or_insert_with(HashMap::new);
+
+            // Build the graph stats
+            for &graph_stat in &args.graph_stats {
+                use GraphStatArg::*;
 
                 let stat = match graph_stat {
                     Hdw => sounding_analysis::hot_dry_windy(sounding),
@@ -346,11 +348,11 @@ fn calculate_stats(args: &CmdLineArgs, arch: &Archive, site: &str) -> Result<Cal
                     Err(_) => ::std::f64::NAN,
                 };
 
-                graph_stats.push((valid_time, stat));
+                graph_stats.insert(graph_stat, stat);
             }
 
             // Build the daily stats
-            for &table_stat in args.table_stats.iter() {
+            for &table_stat in &args.table_stats {
                 use TableStatArg::*;
 
                 let zero_z = |old_val: (f64, u32), new_val: (f64, u32)| -> (f64, u32) {
@@ -362,9 +364,7 @@ fn calculate_stats(args: &CmdLineArgs, arch: &Archive, site: &str) -> Result<Cal
                 };
 
                 let max = |old_val: (f64, u32), new_val: (f64, u32)| -> (f64, u32) {
-                    if old_val.0.is_nan() && !new_val.0.is_nan() {
-                        new_val
-                    } else if new_val.0 > old_val.0 {
+                    if (old_val.0.is_nan() && !new_val.0.is_nan()) || (new_val.0 > old_val.0){
                         new_val
                     } else {
                         old_val
@@ -374,7 +374,7 @@ fn calculate_stats(args: &CmdLineArgs, arch: &Archive, site: &str) -> Result<Cal
                 let mut table_stats = model_stats
                     .table_stats
                     .entry(table_stat)
-                    .or_insert(HashMap::new());
+                    .or_insert_with(HashMap::new);
 
                 let stat_func: &Fn(&Sounding) -> Result<f64, _> = match table_stat {
                     Hdw => &sounding_analysis::hot_dry_windy,
@@ -424,7 +424,7 @@ fn calculate_stats(args: &CmdLineArgs, arch: &Archive, site: &str) -> Result<Cal
 fn print_stats(args: &CmdLineArgs, site: &str, stats: &CalcStats) -> Result<(), Error> {
     use table_printer::TablePrinter;
 
-    for model in args.models.iter() {
+    for model in &args.models {
         let stats = match stats.stats.get(model) {
             Some(stats) => stats,
             None => continue,
@@ -454,11 +454,11 @@ fn print_stats(args: &CmdLineArgs, site: &str, stats: &CalcStats) -> Result<(), 
                 stats
                     .init_time
                     .map(|dt| dt.to_string())
-                    .unwrap_or("unknown".to_owned()),
+                    .unwrap_or_else(|| "unknown".to_owned()),
                 stats
                     .end_time
                     .map(|dt| dt.to_string())
-                    .unwrap_or("unknown".to_owned())
+                    .unwrap_or_else(|| "unknown".to_owned())
             );
             let footer = concat!(
                 "For daily maximum values, first and last days may be partial. ",
@@ -471,7 +471,7 @@ fn print_stats(args: &CmdLineArgs, site: &str, stats: &CalcStats) -> Result<(), 
                 .with_footer(footer)
                 .with_column("Date", &days);
 
-            for table_stat in args.table_stats.iter() {
+            for table_stat in &args.table_stats {
                 use TableStatArg::*;
 
                 let vals = match table_stats.get(table_stat) {
@@ -518,11 +518,20 @@ fn print_stats(args: &CmdLineArgs, site: &str, stats: &CalcStats) -> Result<(), 
         // GRAPHS
         //
         let graph_stats = &stats.graph_stats;
-        for graph_stat in args.graph_stats.iter() {
-            let vals = match graph_stats.get(graph_stat) {
-                Some(vals) => vals,
-                None => continue,
-            };
+        let mut valid_times: Vec<NaiveDateTime> = graph_stats.keys().cloned().collect();
+        valid_times.sort();
+        for graph_stat in &args.graph_stats {
+
+            let mut vals: Vec<(NaiveDateTime, f32)> = vec![];
+            for vt in &valid_times {
+                graph_stats.get(vt).and_then(|hm|{
+                    hm.get(graph_stat).and_then(|stat_val|{
+                        vals.push((*vt, *stat_val as f32));
+                        Some(())
+                    })
+                });
+            }
+
             let base_time = if let Some(first) = vals.get(0) {
                 first.0
             } else {
@@ -573,8 +582,50 @@ fn print_stats(args: &CmdLineArgs, site: &str, stats: &CalcStats) -> Result<(), 
 }
 
 fn save_stats(args: &CmdLineArgs, site: &str, stats: &CalcStats) -> Result<(), Error> {
-    // Print the stats to the screen
-    unimplemented!()
+
+    let stats = &stats.stats;
+
+    for (model, model_stats) in stats.iter() {
+        let graph_stats = &model_stats.graph_stats;
+        let mut vts: Vec<NaiveDateTime> = graph_stats.keys().cloned().collect();
+        vts.sort();
+
+        let init_time_str = &vts[0].format("_%Y%m%d%H").to_string();
+
+        let file_name = String::new() + site + "_" + model.as_static() + init_time_str + ".csv";
+        let path = args.save_dir.as_ref().expect("No path provided").join(&file_name);
+        let mut file = File::create(path)?;
+        let mut wtr = csv::Writer::from_writer(file);
+
+        let stat_keys: &[GraphStatArg] = &args.graph_stats;
+        let mut stat_key_strings: Vec<&str> = args.graph_stats.iter().map(|k| k.as_static()).collect();
+        stat_key_strings.insert(0, "Time");
+
+        wtr.write_record(&stat_key_strings)?;
+
+        let mut string_vec: Vec<String> = vec![];
+        for vt in vts {
+            string_vec.push(format!("{}", vt));
+
+            let vals = match graph_stats.get(&vt){
+                Some(vals)=> vals,
+                None => continue,
+            };
+
+            for stat_key in stat_keys {
+                let val = match vals.get(stat_key){
+                    Some(val)=> val,
+                    None => continue,
+                };
+
+                string_vec.push(format!("{}", val));
+            }
+
+            wtr.write_record(&string_vec)?;
+            string_vec.clear();
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -649,7 +700,7 @@ impl CalcStats {
 
 #[derive(Debug)]
 struct ModelStats {
-    graph_stats: HashMap<GraphStatArg, Vec<(NaiveDateTime, f64)>>,
+    graph_stats: HashMap<NaiveDateTime, HashMap<GraphStatArg, f64>>,
     table_stats: HashMap<TableStatArg, HashMap<NaiveDate, (f64, u32)>>,
     init_time: Option<NaiveDateTime>,
     end_time: Option<NaiveDateTime>,
@@ -772,7 +823,7 @@ mod table_printer {
                     col_widths[i] = width;
                 }
 
-                for row in self.columns[i].iter() {
+                for row in &self.columns[i] {
                     width = UnicodeWidthStr::width(row.as_str()) + 2;
                     if col_widths[i] < width {
                         col_widths[i] = width;
@@ -780,7 +831,7 @@ mod table_printer {
                 }
             }
 
-            debug_assert!(self.columns.len() > 0, "Must add a column.");
+            debug_assert!(self.columns.is_empty(), "Must add a column.");
             let mut all_cols_width: usize =
                 col_widths.iter().cloned().sum::<usize>() + col_widths.len() - 1;
 
@@ -827,7 +878,7 @@ mod table_printer {
             // Build the string.
             //
             let mut builder = String::with_capacity(2000); // This should be enough
-            write!(&mut builder, "\n")?;
+            writeln!(&mut builder)?;
 
             //
             // Print the title
@@ -842,9 +893,9 @@ mod table_printer {
                     "\u{2500}".repeat(table_width)
                 )?;
                 // print title
-                write!(
+                writeln!(
                     &mut builder,
-                    "\u{2502}{0:^1$}\u{2502}\n",
+                    "\u{2502}{0:^1$}\u{2502}",
                     title, table_width
                 )?;
 
@@ -861,15 +912,15 @@ mod table_printer {
             //
             if let Some(header) = self.header {
                 // print top border -  or a horizontal line
-                write!(
+                writeln!(
                     &mut builder,
-                    "{}{}{}\n",
+                    "{}{}{}",
                     left_char,
                     "\u{2500}".repeat(table_width),
                     right_char
                 )?;
                 for line in wrapper(&header, table_width) {
-                    write!(&mut builder, "\u{2502}{0:<1$}\u{2502}\n", line, table_width)?;
+                    writeln!(&mut builder, "\u{2502}{0:<1$}\u{2502}", line, table_width)?;
                 }
 
                 // set up the border type for the next line.
@@ -886,23 +937,23 @@ mod table_printer {
             for &width in &col_widths[..(col_widths.len() - 1)] {
                 write!(&mut builder, "{}\u{252C}", "\u{2500}".repeat(width))?;
             }
-            write!(
+            writeln!(
                 &mut builder,
-                "{}{}\n",
+                "{}{}",
                 "\u{2500}".repeat(col_widths[col_widths.len() - 1]),
                 right_char
             )?;
 
             // print column names
-            for i in 0..self.column_names.len() {
+            for (name, width) in self.column_names.iter().zip(col_widths.iter()) {
                 write!(
                     &mut builder,
                     "\u{2502} {0:^1$} ",
-                    self.column_names[i],
-                    col_widths[i] - 2
+                    name,
+                    width - 2
                 )?;
             }
-            write!(&mut builder, "\u{2502}\n")?;
+            writeln!(&mut builder, "\u{2502}")?;
 
             //
             // Print the data rows
@@ -913,9 +964,9 @@ mod table_printer {
             for &width in &col_widths[..(col_widths.len() - 1)] {
                 write!(&mut builder, "{}\u{253C}", "\u{2500}".repeat(width))?;
             }
-            write!(
+            writeln!(
                 &mut builder,
-                "{}\u{2524}\n",
+                "{}\u{2524}",
                 "\u{2500}".repeat(col_widths[col_widths.len() - 1])
             )?;
 
@@ -926,7 +977,7 @@ mod table_printer {
                     let val = self.columns[j].get(i).unwrap_or(&self.fill);
                     write!(&mut builder, "\u{2502} {0:>1$} ", val, col_widths[j] - 2)?;
                 }
-                write!(&mut builder, "\u{2502}\n")?;
+                writeln!(&mut builder, "\u{2502}")?;
             }
 
             //
@@ -945,22 +996,22 @@ mod table_printer {
             for &width in &col_widths[..(col_widths.len() - 1)] {
                 write!(&mut builder, "{}\u{2534}", "\u{2500}".repeat(width))?;
             }
-            write!(
+            writeln!(
                 &mut builder,
-                "{}{}\n",
+                "{}{}",
                 "\u{2500}".repeat(col_widths[col_widths.len() - 1]),
                 right_char
             )?;
 
             if let Some(footer) = self.footer {
                 for line in wrapper(&footer, table_width) {
-                    write!(&mut builder, "\u{2502}{0:<1$}\u{2502}\n", line, table_width)?;
+                    writeln!(&mut builder, "\u{2502}{0:<1$}\u{2502}", line, table_width)?;
                 }
 
                 // print very bottom border -  or a horizontal line
-                write!(
+                writeln!(
                     &mut builder,
-                    "\u{2514}{}\u{2518}\n",
+                    "\u{2514}{}\u{2518}",
                     "\u{2500}".repeat(table_width)
                 )?;
             }

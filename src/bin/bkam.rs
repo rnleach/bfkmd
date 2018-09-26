@@ -340,8 +340,8 @@ fn sites_list(
         println!("No sites matched criteria.");
     } else {
         println!(
-            "{:^4} {:^5} {:^20} {:^13} : {}",
-            "ID", "STATE", "NAME", "Auto Download", "NOTES"
+            "{:^4} {:^5} {:^20} {:^13} : NOTES",
+            "ID", "STATE", "NAME", "Auto Download",
         );
     }
 
@@ -422,7 +422,7 @@ fn sites_inventory(
         } else {
             println!("Missing:");
             println!("{:^19} -> {:^19} : {:6}", "From", "To", "Cycles");
-            for missing in inv.missing.iter() {
+            for missing in &inv.missing {
                 let start = missing.0;
                 let end = missing.1;
                 let cycles = (end - start).num_hours() / model.hours_between_runs() + 1;
@@ -533,7 +533,7 @@ fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
     let files: Vec<PathBuf> = sub_args
         .values_of("file")
         .into_iter()
-        .flat_map(|file_iter| file_iter.map(|file| PathBuf::from(file)))
+        .flat_map(|file_iter| file_iter.map(PathBuf::from))
         .collect();
 
     //
