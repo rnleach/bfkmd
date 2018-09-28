@@ -9,6 +9,7 @@ extern crate failure;
 extern crate sounding_bufkit;
 extern crate strum;
 
+use bfkmd::bail;
 use bufkit_data::{Archive, BufkitDataErr, Model, Site, StateProv};
 use chrono::{NaiveDate, NaiveDateTime};
 use clap::{App, Arg, ArgMatches, SubCommand};
@@ -438,10 +439,6 @@ fn sites_inventory(
 }
 
 fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
-    let bail = |msg: &str| -> ! {
-        println!("{}", msg);
-        ::std::process::exit(1);
-    };
 
     let arch = Archive::connect(root)?;
 
@@ -519,10 +516,6 @@ fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
 }
 
 fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
-    let bail = |msg: &str| -> ! {
-        println!("{}", msg);
-        ::std::process::exit(1);
-    };
 
     let arch = Archive::connect(root)?;
 

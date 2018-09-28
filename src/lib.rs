@@ -3,7 +3,14 @@
 //
 // Public API
 //
+pub use util::bail;
 
 //
 // Internal only
 //
+mod util {
+    pub fn bail(msg: &str) -> ! {
+        println!("{}", msg);
+        ::std::process::exit(1);
+    }
+}

@@ -1,5 +1,6 @@
 //! firebuf - Calculate fire weather indicies from soundings in your Bufkit Archive.
 
+extern crate bfkmd;
 extern crate bufkit_data;
 extern crate chrono;
 #[macro_use]
@@ -16,6 +17,7 @@ extern crate strum_macros;
 extern crate textplots;
 extern crate unicode_width;
 
+use bfkmd::bail;
 use bufkit_data::{Archive, Model};
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use clap::{App, Arg};
@@ -223,11 +225,6 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
         .or_else(|| home_dir().and_then(|hd| Some(hd.join("bufkit"))))
         .expect("Invalid root.");
     let root_clone = root.clone();
-
-    let bail = |msg: &str| -> ! {
-        println!("{}", msg);
-        ::std::process::exit(1);
-    };
 
     let arch = match Archive::connect(root) {
         arch @ Ok(_) => arch,
