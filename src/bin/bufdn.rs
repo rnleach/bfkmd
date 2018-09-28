@@ -16,9 +16,9 @@ extern crate failure;
 extern crate reqwest;
 extern crate strum;
 
-use bfkmd::{bail, parse_date_string};
+use bfkmd::{parse_date_string};
 use bufkit_data::{Archive, BufkitDataErr, Model};
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
+use chrono::{Datelike, Duration, NaiveDateTime, Timelike, Utc};
 use clap::{App, Arg, ArgMatches};
 use crossbeam_channel as channel;
 use dirs::home_dir;

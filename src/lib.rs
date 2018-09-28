@@ -8,9 +8,11 @@ pub use util::{bail, parse_date_string};
 //
 // Internal only
 //
+extern crate chrono;
+
 mod util {
     use chrono::{NaiveDate, NaiveDateTime};
-    
+
     pub fn bail(msg: &str) -> ! {
         println!("{}", msg);
         ::std::process::exit(1);
@@ -28,5 +30,5 @@ mod util {
         };
 
         date.and_hms(hour, 0, 0)
-    };
+    }
 }

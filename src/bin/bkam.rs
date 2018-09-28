@@ -1,7 +1,6 @@
 //! BufKit Archive Manager
 extern crate bfkmd;
 extern crate bufkit_data;
-extern crate chrono;
 #[macro_use]
 extern crate clap;
 extern crate dirs;
@@ -11,7 +10,6 @@ extern crate strum;
 
 use bfkmd::{bail, parse_date_string};
 use bufkit_data::{Archive, BufkitDataErr, Model, Site, StateProv};
-use chrono::{NaiveDate, NaiveDateTime};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use dirs::home_dir;
 use failure::{err_msg, Error, Fail};
