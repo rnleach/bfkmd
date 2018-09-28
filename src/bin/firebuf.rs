@@ -53,6 +53,9 @@ fn main() {
 fn run() -> Result<(), Error> {
     let args = &parse_args()?;
 
+    #[cfg(debug_assertions)]
+    println!("{:#?}", args);
+
     let arch = &Archive::connect(&args.root)?;
     let g_stats = &args.graph_stats;
     let t_stats = &args.table_stats;
@@ -563,7 +566,6 @@ fn print_stats(
 
             tp = tp.with_column(table_stat.as_static(), &daily_stat_values);
         }
-
         tp.print_with_min_width(78)?;
     }
 
@@ -875,7 +877,7 @@ mod table_printer {
                 }
             }
 
-            debug_assert!(self.columns.is_empty(), "Must add a column.");
+            debug_assert!(!self.columns.is_empty(), "Must add a column.");
             let mut all_cols_width: usize =
                 col_widths.iter().cloned().sum::<usize>() + col_widths.len() - 1;
 
@@ -1008,9 +1010,9 @@ mod table_printer {
             // print rows
             let num_rows = self.columns.iter().map(|col| col.len()).max().unwrap_or(0);
             for i in 0..num_rows {
-                for j in 0..self.columns.len() {
-                    let val = self.columns[j].get(i).unwrap_or(&self.fill);
-                    write!(&mut builder, "\u{2502} {0:>1$} ", val, col_widths[j] - 2)?;
+                for (column, col_width) in self.columns.iter().zip(&col_widths) {
+                    let val = column.get(i).unwrap_or(&self.fill);
+                    write!(&mut builder, "\u{2502} {0:>1$} ", val, col_width - 2)?;
                 }
                 writeln!(&mut builder, "\u{2502}")?;
             }
