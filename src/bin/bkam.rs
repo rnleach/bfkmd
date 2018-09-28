@@ -9,7 +9,7 @@ extern crate failure;
 extern crate sounding_bufkit;
 extern crate strum;
 
-use bfkmd::bail;
+use bfkmd::{bail, parse_date_string};
 use bufkit_data::{Archive, BufkitDataErr, Model, Site, StateProv};
 use chrono::{NaiveDate, NaiveDateTime};
 use clap::{App, Arg, ArgMatches, SubCommand};
@@ -472,19 +472,6 @@ fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
     //
     //  Set up optional arguments.
     //
-    let parse_date_string = |dt_str: &str| -> NaiveDateTime {
-        let hour: u32 = match dt_str[11..].parse() {
-            Ok(hour) => hour,
-            Err(_) => bail(&format!("Could not parse date: {}", dt_str)),
-        };
-
-        let date = match NaiveDate::parse_from_str(&dt_str[..10], "%Y-%m-%d") {
-            Ok(date) => date,
-            Err(_) => bail(&format!("Could not parse date: {}", dt_str)),
-        };
-
-        date.and_hms(hour, 0, 0)
-    };
 
     let start_date = if let Some(start_date) = sub_args.value_of("start") {
         parse_date_string(start_date)

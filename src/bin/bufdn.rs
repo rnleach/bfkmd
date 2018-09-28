@@ -16,7 +16,7 @@ extern crate failure;
 extern crate reqwest;
 extern crate strum;
 
-use bfkmd::bail;
+use bfkmd::{bail, parse_date_string};
 use bufkit_data::{Archive, BufkitDataErr, Model};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use clap::{App, Arg, ArgMatches};
@@ -299,20 +299,6 @@ fn build_download_list<'a>(
 
     let mut end = Utc::now().naive_utc() - Duration::hours(2);
     let mut start = Utc::now().naive_utc() - Duration::days(days_back);
-
-    let parse_date_string = |dt_str: &str| -> NaiveDateTime {
-        let hour: u32 = match dt_str[11..].parse() {
-            Ok(hour) => hour,
-            Err(_) => bail(&format!("Could not parse date: {}", dt_str)),
-        };
-
-        let date = match NaiveDate::parse_from_str(&dt_str[..10], "%Y-%m-%d") {
-            Ok(date) => date,
-            Err(_) => bail(&format!("Could not parse date: {}", dt_str)),
-        };
-
-        date.and_hms(hour, 0, 0)
-    };
 
     if let Some(start_date) = arg_matches.value_of("start") {
         start = parse_date_string(start_date);
