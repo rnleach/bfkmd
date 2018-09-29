@@ -477,7 +477,6 @@ fn print_stats(
     g_stats: &[GraphStatArg],
     t_stats: &[TableStatArg],
 ) -> Result<(), Error> {
-
     //
     // Table
     //
@@ -743,4 +742,3 @@ impl ModelStats {
         }
     }
 }
-

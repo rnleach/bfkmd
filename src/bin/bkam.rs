@@ -407,27 +407,36 @@ fn sites_inventory(
     let arch = Archive::connect(root)?;
 
     // Safe to unwrap because the argument is required.
-    let site = sub_sub_args.value_of("site").ok_or(BufkitDataErr::GeneralError)?;
+    let site = sub_sub_args
+        .value_of("site")
+        .ok_or(BufkitDataErr::GeneralError)?;
 
     for model in Model::iter() {
-        let inv = match arch.get_inventory(site, model){
-            ok@Ok(_) => ok,
+        let inv = match arch.get_inventory(site, model) {
+            ok @ Ok(_) => ok,
             Err(BufkitDataErr::NotEnoughData) => {
-                println!("No data for model {} and site {}.", model.as_static(), site.to_uppercase());
+                println!(
+                    "No data for model {} and site {}.",
+                    model.as_static(),
+                    site.to_uppercase()
+                );
                 continue;
-            },
-            err@Err(_) => err,
+            }
+            err @ Err(_) => err,
         }?;
 
-        if inv.missing.is_empty(){
+        if inv.missing.is_empty() {
             println!("\nInventory for {} at {}.", model, site.to_uppercase());
             println!("   start: {}", inv.first);
             println!("     end: {}", inv.last);
             println!("          No missing runs!");
         } else {
             let mut tp = TablePrinter::new()
-                .with_title(format!("Inventory for {} at {}.", model, site.to_uppercase()))
-                .with_header(format!("{} -> {}", inv.first, inv.last));
+                .with_title(format!(
+                    "Inventory for {} at {}.",
+                    model,
+                    site.to_uppercase()
+                )).with_header(format!("{} -> {}", inv.first, inv.last));
 
             let dl = if inv.auto_download { "" } else { " NOT" };
             tp = tp.with_footer(format!("This site is{} automatically downloaded.", dl));
@@ -444,9 +453,10 @@ fn sites_inventory(
                 end.push(format!("{}", end_run));
             }
 
-            tp = tp.with_column("Cycles", &cycles)
-                    .with_column("From", &start)
-                    .with_column("To", &end);
+            tp = tp
+                .with_column("Cycles", &cycles)
+                .with_column("From", &start)
+                .with_column("To", &end);
             tp.print()?;
         }
     }
@@ -455,7 +465,6 @@ fn sites_inventory(
 }
 
 fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
-
     let arch = Archive::connect(root)?;
 
     // unwrap is ok, these are required.
@@ -519,7 +528,6 @@ fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
 }
 
 fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
-
     let arch = Archive::connect(root)?;
 
     // unwrap is ok, these are required.

@@ -16,7 +16,7 @@ extern crate failure;
 extern crate reqwest;
 extern crate strum;
 
-use bfkmd::{parse_date_string};
+use bfkmd::parse_date_string;
 use bufkit_data::{Archive, BufkitDataErr, Model};
 use chrono::{Datelike, Duration, NaiveDateTime, Timelike, Utc};
 use clap::{App, Arg, ArgMatches};
@@ -265,7 +265,6 @@ fn build_download_list<'a>(
     arg_matches: &'a ArgMatches,
     arch: &Archive,
 ) -> Result<impl Iterator<Item = (String, Model, NaiveDateTime)> + 'a, BufkitDataErr> {
-
     let mut sites: Vec<String> = arg_matches
         .values_of("sites")
         .into_iter()
