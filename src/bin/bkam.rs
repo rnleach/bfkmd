@@ -8,7 +8,7 @@ extern crate failure;
 extern crate sounding_bufkit;
 extern crate strum;
 
-use bfkmd::{bail, parse_date_string};
+use bfkmd::{bail, parse_date_string, TablePrinter};
 use bufkit_data::{Archive, BufkitDataErr, Model, Site, StateProv};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use dirs::home_dir;
@@ -407,30 +407,48 @@ fn sites_inventory(
     let arch = Archive::connect(root)?;
 
     // Safe to unwrap because the argument is required.
-    let site = sub_sub_args.value_of("site").unwrap();
+    let site = sub_sub_args.value_of("site").ok_or(BufkitDataErr::GeneralError)?;
 
     for model in Model::iter() {
-        let inv = arch.get_inventory(site, model)?;
+        let inv = match arch.get_inventory(site, model){
+            ok@Ok(_) => ok,
+            Err(BufkitDataErr::NotEnoughData) => {
+                println!("No data for model {} and site {}.", model.as_static(), site.to_uppercase());
+                continue;
+            },
+            err@Err(_) => err,
+        }?;
 
-        println!("\nInventory for {} at {}.", model, site.to_uppercase());
-        println!("   start: {}", inv.first);
-        println!("     end: {}", inv.last);
-
-        if inv.missing.is_empty() {
-            println!("\n   No missing runs!");
+        if inv.missing.is_empty(){
+            println!("\nInventory for {} at {}.", model, site.to_uppercase());
+            println!("   start: {}", inv.first);
+            println!("     end: {}", inv.last);
+            println!("          No missing runs!");
         } else {
-            println!("Missing:");
-            println!("{:^19} -> {:^19} : {:6}", "From", "To", "Cycles");
-            for missing in &inv.missing {
-                let start = missing.0;
-                let end = missing.1;
-                let cycles = (end - start).num_hours() / model.hours_between_runs() + 1;
-                println!("{} -> {} : {:6}", start, end, cycles);
-            }
-        }
-        let dl = if inv.auto_download { "" } else { " NOT" };
+            let mut tp = TablePrinter::new()
+                .with_title(format!("Inventory for {} at {}.", model, site.to_uppercase()))
+                .with_header(format!("{} -> {}", inv.first, inv.last));
 
-        println!("This site is{} automatically downloaded.", dl);
+            let dl = if inv.auto_download { "" } else { " NOT" };
+            tp = tp.with_footer(format!("This site is{} automatically downloaded.", dl));
+
+            let mut cycles = vec![];
+            let mut start = vec![];
+            let mut end = vec![];
+            for missing in &inv.missing {
+                let start_run = missing.0;
+                let end_run = missing.1;
+                let num_cycles = (end_run - start_run).num_hours() / model.hours_between_runs() + 1;
+                cycles.push(format!("{}", num_cycles));
+                start.push(format!("{}", start_run));
+                end.push(format!("{}", end_run));
+            }
+
+            tp = tp.with_column("Cycles", &cycles)
+                    .with_column("From", &start)
+                    .with_column("To", &end);
+            tp.print()?;
+        }
     }
 
     Ok(())
