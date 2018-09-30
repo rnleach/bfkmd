@@ -421,11 +421,6 @@ fn calculate_stats(
                 }
             };
 
-            let mut table_stats = model_stats
-                .table_stats
-                .entry(table_stat)
-                .or_insert_with(HashMap::new);
-
             let stat_func: &Fn(&Sounding) -> Result<f64, _> = match table_stat {
                 Hdw => &sounding_analysis::hot_dry_windy,
                 MaxHdw => &sounding_analysis::hot_dry_windy,
@@ -437,7 +432,7 @@ fn calculate_stats(
                 MaxHainesHigh => &sounding_analysis::haines_high,
                 AutoHaines => &sounding_analysis::haines,
                 MaxAutoHaines => &sounding_analysis::haines,
-                None => continue,
+                TableStatArg::None => continue,
             };
             let stat = match stat_func(sounding) {
                 Ok(stat) => stat,
@@ -455,8 +450,13 @@ fn calculate_stats(
                 MaxHainesHigh => &max,
                 AutoHaines => &zero_z,
                 MaxAutoHaines => &max,
-                None => unreachable!(),
+                TableStatArg::None => unreachable!(),
             };
+
+            let mut table_stats = model_stats
+                .table_stats
+                .entry(table_stat)
+                .or_insert_with(HashMap::new);
 
             let mut day_entry = table_stats.entry(cal_day).or_insert((::std::f64::NAN, 12));
             let hour = valid_time.hour();
@@ -481,6 +481,7 @@ fn print_stats(
     // Table
     //
     if !stats.table_stats.is_empty() {
+        
         let table_stats = &stats.table_stats;
         let vals = &table_stats[&t_stats[0]];
 
