@@ -63,12 +63,12 @@ fn run() -> Result<(), Error> {
 
     for site in &args.sites {
         for model in &args.models {
-            let latest = match arch.get_most_recent_valid_time(site, *model){
+            let latest = match arch.get_most_recent_valid_time(site, *model) {
                 Ok(latest) => vec![latest],
                 Err(_) => {
                     println!("No data in archive for {} at {}.", model.as_static(), site);
                     continue;
-                },
+                }
             };
 
             let init_times = if args.init_times.is_empty() {
@@ -489,7 +489,6 @@ fn print_stats(
     // Table
     //
     if !stats.table_stats.is_empty() {
-        
         let table_stats = &stats.table_stats;
         let vals = &table_stats[&t_stats[0]];
 
