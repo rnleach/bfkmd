@@ -63,7 +63,14 @@ fn run() -> Result<(), Error> {
 
     for site in &args.sites {
         for model in &args.models {
-            let latest = vec![arch.get_most_recent_valid_time(site, *model)?];
+            let latest = match arch.get_most_recent_valid_time(site, *model){
+                Ok(latest) => vec![latest],
+                Err(_) => {
+                    println!("No data in archive for {} at {}.", model.as_static(), site);
+                    continue;
+                },
+            };
+
             let init_times = if args.init_times.is_empty() {
                 &latest
             } else {
@@ -355,6 +362,7 @@ fn calculate_stats(
     t_stats: &[TableStatArg],
 ) -> Result<ModelStats, Error> {
     let analysis = arch.get_file(site, model, init_time)?;
+
     let analysis = BufkitData::new(&analysis)?;
 
     let mut model_stats = ModelStats::new();
