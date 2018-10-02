@@ -316,7 +316,7 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
             }
             init_times
         } else {
-            vec![]
+            vec![start_time]
         }
     } else {
         vec![]
