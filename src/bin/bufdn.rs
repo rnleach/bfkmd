@@ -168,14 +168,14 @@ fn run() -> Result<(), Error> {
 
             let download_result = match client.get(&url).send() {
                 Ok(ref mut response) => match response.status() {
-                    StatusCode::Ok => {
+                    StatusCode::OK => {
                         let mut buffer = String::new();
                         match response.read_to_string(&mut buffer) {
                             Ok(_) => StepResult::BufkitFileAsString(buffer),
                             Err(err) => StepResult::OtherDownloadError(err.into()),
                         }
                     }
-                    StatusCode::NotFound => StepResult::URLNotFound(url),
+                    StatusCode::NOT_FOUND => StepResult::URLNotFound(url),
                     code => StepResult::OtherURLStatus(url, code),
                 },
                 Err(err) => StepResult::OtherDownloadError(err.into()),
