@@ -313,7 +313,7 @@ fn build_download_list<'a>(
     }
 
     Ok(iproduct!(sites, models)
-        .filter(|(site, model)| invalid_combination(site, *model))
+        .filter(|(site, model)| !invalid_combination(site, *model))
         .filter(move |(site, model)| {
             if auto_models || auto_sites {
                 arch.models_for_site(site)
