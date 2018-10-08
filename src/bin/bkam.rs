@@ -335,14 +335,19 @@ fn sites_list(
             .filter(|s| auto_download_pred(s))
     };
 
-    if sites_iter().count() == 0 {
+    let mut table_printer = if sites_iter().count() == 0 {
         println!("No sites matched criteria.");
+        return Ok(());
     } else {
-        println!(
-            "{:^4} {:^5} {:^20} {:^13} : NOTES",
-            "ID", "STATE", "NAME", "Auto Download",
-        );
-    }
+        TablePrinter::new()
+            .with_title("Sites".to_owned())
+            .with_column::<String, String>("ID".to_owned(), &[])
+            .with_column::<String, String>("STATE".to_owned(), &[])
+            .with_column::<String, String>("NAME".to_owned(), &[])
+            .with_column::<String, String>("Auto Download".to_owned(), &[])
+            .with_column::<String, String>("MODELS".to_owned(), &[])
+            .with_column::<String, String>("NOTES".to_owned(), &[])
+    };
 
     let blank = "-".to_owned();
 
@@ -352,13 +357,24 @@ fn sites_list(
         let name = site.name.as_ref().unwrap_or(&blank);
         let notes = site.notes.as_ref().unwrap_or(&blank);
         let auto_dl = if site.auto_download { "Yes" } else { "No" };
-        println!(
-            "{:<4} {:^5} {:<20} {:>13} : {:<}",
-            id, state, name, auto_dl, notes
-        );
+        let models = arch
+            .models_for_site(id)?
+            .into_iter()
+            .map(|mdl| mdl.as_static().to_owned())
+            .collect::<Vec<String>>()
+            .join(",");
+        let row = vec![
+            format!("{}", id),
+            format!("{}", state),
+            format!("{}", name),
+            format!("{}", auto_dl),
+            format!("{}", models),
+            format!("{}", notes),
+        ];
+        table_printer.add_row(row);
     }
 
-    Ok(())
+    table_printer.print()
 }
 
 fn sites_modify(
@@ -501,7 +517,10 @@ fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
     let start_date = if let Some(start_date) = sub_args.value_of("start") {
         parse_date_string(start_date)
     } else {
-        arch.get_most_recent_valid_time(site, model)?
+        match arch.get_most_recent_valid_time(site, model) {
+            Ok(vt) => vt,
+            Err(_) => bail(&format!("No data for site {} and model {}.", site, model)),
+        }
     };
 
     let end_date = if let Some(end_date) = sub_args.value_of("end") {

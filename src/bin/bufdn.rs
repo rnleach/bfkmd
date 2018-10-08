@@ -263,7 +263,7 @@ fn run() -> Result<(), Error> {
 
 fn build_download_list<'a>(
     arg_matches: &'a ArgMatches,
-    arch: &Archive,
+    arch: &'a Archive,
 ) -> Result<impl Iterator<Item = (String, Model, NaiveDateTime)> + 'a, BufkitDataErr> {
     let mut sites: Vec<String> = arg_matches
         .values_of("sites")
@@ -283,6 +283,9 @@ fn build_download_list<'a>(
         .and_then(|val| val.parse::<i64>().ok())
         .unwrap_or(DEFAULT_DAYS_BACK);
 
+    let mut auto_sites = false;
+    let mut auto_models = false;
+
     if sites.is_empty() {
         sites = arch
             .get_sites()?
@@ -290,10 +293,12 @@ fn build_download_list<'a>(
             .filter(|s| s.auto_download)
             .map(|site| site.id)
             .collect();
+        auto_sites = true;
     }
 
     if models.is_empty() {
         models = Model::iter().collect();
+        auto_models = true;
     }
 
     let mut end = Utc::now().naive_utc() - Duration::hours(2);
@@ -307,11 +312,21 @@ fn build_download_list<'a>(
         end = parse_date_string(end_date);
     }
 
-    Ok(iproduct!(sites, models).flat_map(move |(site, model)| {
-        model
-            .all_runs(&(start - Duration::hours(model.hours_between_runs())), &end)
-            .map(move |init_time| (site.to_lowercase(), model, init_time))
-    }))
+    Ok(iproduct!(sites, models)
+        .filter(|(site, model)| invalid_combination(site, *model))
+        .filter(move |(site, model)| {
+            if auto_models || auto_sites {
+                arch.models_for_site(site)
+                    .map(|vec| vec.contains(model))
+                    .unwrap_or(false)
+            } else {
+                true
+            }
+        }).flat_map(move |(site, model)| {
+            model
+                .all_runs(&(start - Duration::hours(model.hours_between_runs())), &end)
+                .map(move |init_time| (site.to_uppercase(), model, init_time))
+        }))
 }
 
 fn invalid_combination(site: &str, model: Model) -> bool {

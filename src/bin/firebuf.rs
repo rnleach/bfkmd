@@ -63,13 +63,12 @@ fn run() -> Result<(), Error> {
 
     for site in &args.sites {
         for model in &args.models {
-            let latest = match arch.get_most_recent_valid_time(site, *model) {
-                Ok(latest) => vec![latest],
-                Err(_) => {
-                    println!("No data in archive for {} at {}.", model.as_static(), site);
-                    continue;
-                }
-            };
+            if !arch.models_for_site(site)?.contains(&model) {
+                println!("No data in archive for {} at {}.", model.as_static(), site);
+                continue;
+            }
+
+            let latest = vec![arch.get_most_recent_valid_time(site, *model)?];
 
             let init_times = if args.init_times.is_empty() {
                 &latest

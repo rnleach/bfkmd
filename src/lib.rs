@@ -114,6 +114,13 @@ mod table_printer {
             }
         }
 
+        pub fn add_row(&mut self, row_vals: Vec<String>) {
+            debug_assert!(row_vals.len() == self.columns.len());
+            for (col, val) in self.columns.iter_mut().zip(row_vals.into_iter()) {
+                col.push(val);
+            }
+        }
+
         pub fn print(self) -> Result<(), Error> {
             self.print_with_min_width(0)
         }
