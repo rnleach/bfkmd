@@ -27,7 +27,7 @@ use failure::{Error, Fail};
 use reqwest::{Client, StatusCode};
 use rusqlite::{Connection, OpenFlags};
 use std::io::{Read, Write};
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::thread::{spawn, JoinHandle};
 use strum::IntoEnumIterator;
@@ -229,7 +229,7 @@ fn run() -> Result<(), Error> {
                         missing_urls.add_url(url)?;
                     }
                     writeln!(lock, "URL does not exist: {}", url)?
-                },
+                }
                 OtherURLStatus(url, code) => writeln!(lock, "  HTTP error ({}): {}.", code, url)?,
                 OtherDownloadError(err) | ArhciveError(err) => {
                     writeln!(lock, "  {}", err)?;
@@ -395,23 +395,22 @@ fn translate_sites(site: &str, model: Model) -> &str {
 }
 
 struct MissingUrlDb {
-    db_conn: Connection
+    db_conn: Connection,
 }
 
 impl MissingUrlDb {
-
     fn open_or_create_404_db(root: &Path) -> Result<Self, BufkitDataErr> {
         let db_file = &root.join("404.db");
 
         let db404 = Connection::open_with_flags(
-                db_file,
-                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
-            )?;
+            db_file,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+        )?;
 
         db404.execute(
             "CREATE TABLE IF NOT EXISTS missing (
                 url TEXT PRIMARY KEY
-            )", 
+            )",
             &[],
         )?;
 
@@ -420,7 +419,7 @@ impl MissingUrlDb {
 
     fn is_missing(&self, url: &String) -> Result<bool, BufkitDataErr> {
         let num_missing: i32 = self.db_conn.query_row(
-            "SELECT COUNT(*) FROM missing WHERE url = ?1", 
+            "SELECT COUNT(*) FROM missing WHERE url = ?1",
             &[url],
             |row| row.get(0),
         )?;
@@ -429,12 +428,9 @@ impl MissingUrlDb {
     }
 
     fn add_url(&self, url: &String) -> Result<(), BufkitDataErr> {
-        self.db_conn.execute(
-            "INSERT INTO missing (url) VALUES (?1)",
-            &[url],
-        )?;
+        self.db_conn
+            .execute("INSERT INTO missing (url) VALUES (?1)", &[url])?;
 
         Ok(())
     }
 }
-
