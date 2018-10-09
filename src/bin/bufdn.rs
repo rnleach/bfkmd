@@ -14,6 +14,7 @@ extern crate itertools;
 #[macro_use]
 extern crate failure;
 extern crate reqwest;
+extern crate rusqlite;
 extern crate strum;
 
 use bfkmd::parse_date_string;
@@ -24,8 +25,9 @@ use crossbeam_channel as channel;
 use dirs::home_dir;
 use failure::{Error, Fail};
 use reqwest::{Client, StatusCode};
+use rusqlite::{Connection, OpenFlags};
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::str::FromStr;
 use std::thread::{spawn, JoinHandle};
 use strum::IntoEnumIterator;
@@ -138,8 +140,9 @@ fn run() -> Result<(), Error> {
         .or_else(|| home_dir().and_then(|hd| Some(hd.join("bufkit"))))
         .expect("Invalid root.");
     let root_clone = root.clone();
+    let root_clone2 = root.clone();
 
-    let arch = Archive::connect(root)?;
+    let arch = Archive::connect(&root)?;
 
     let main_tx: channel::Sender<(String, Model, NaiveDateTime, String)>;
     let dl_rx: channel::Receiver<(String, Model, NaiveDateTime, String)>;
@@ -208,16 +211,25 @@ fn run() -> Result<(), Error> {
         Ok(())
     });
 
-    // The printer thread
-    let printer_handle: JoinHandle<Result<(), Error>> = spawn(move || {
+    // The finalize thread
+    let finalize_handle: JoinHandle<Result<(), Error>> = spawn(move || {
         let stdout = ::std::io::stdout();
         let mut lock = stdout.lock();
+
+        let too_old_to_be_missing = Utc::now().naive_utc() - Duration::hours(27);
+
+        let missing_urls = MissingUrlDb::open_or_create_404_db(&root_clone2)?;
 
         for (site, model, init_time, save_res) in print_rx {
             use StepResult::*;
 
             match save_res {
-                URLNotFound(url) => writeln!(lock, "URL does not exist: {}", url)?,
+                URLNotFound(ref url) => {
+                    if init_time < too_old_to_be_missing {
+                        missing_urls.add_url(url)?;
+                    }
+                    writeln!(lock, "URL does not exist: {}", url)?
+                },
                 OtherURLStatus(url, code) => writeln!(lock, "  HTTP error ({}): {}.", code, url)?,
                 OtherDownloadError(err) | ArhciveError(err) => {
                     writeln!(lock, "  {}", err)?;
@@ -237,6 +249,8 @@ fn run() -> Result<(), Error> {
         Ok(())
     });
 
+    let missing_urls = MissingUrlDb::open_or_create_404_db(&root)?;
+
     // Start processing
     build_download_list(&matches, &arch)?
         // Filter out known bad combinations
@@ -250,13 +264,18 @@ fn run() -> Result<(), Error> {
                 Err(_) => None,
             }
         })
+        // Filter out known missing values
+        .filter(|(_, _, _, url)|{
+            !missing_urls.is_missing(url).unwrap_or(false)
+        })
+        // Pass it off to another thread for downloading.
         .for_each(move |list_val: (String, Model, NaiveDateTime, String)|{
             main_tx.send(list_val);
         });
 
     download_handle.join().unwrap()?;
     writer_handle.join().unwrap()?;
-    printer_handle.join().unwrap()?;
+    finalize_handle.join().unwrap()?;
 
     Ok(())
 }
@@ -313,7 +332,6 @@ fn build_download_list<'a>(
     }
 
     Ok(iproduct!(sites, models)
-        .filter(|(site, model)| !invalid_combination(site, *model))
         .filter(move |(site, model)| {
             if auto_models || auto_sites {
                 arch.models_for_site(site)
@@ -375,3 +393,48 @@ fn translate_sites(site: &str, model: Model) -> &str {
         _ => site,
     }
 }
+
+struct MissingUrlDb {
+    db_conn: Connection
+}
+
+impl MissingUrlDb {
+
+    fn open_or_create_404_db(root: &Path) -> Result<Self, BufkitDataErr> {
+        let db_file = &root.join("404.db");
+
+        let db404 = Connection::open_with_flags(
+                db_file,
+                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+            )?;
+
+        db404.execute(
+            "CREATE TABLE IF NOT EXISTS missing (
+                url TEXT PRIMARY KEY
+            )", 
+            &[],
+        )?;
+
+        Ok(MissingUrlDb { db_conn: db404 })
+    }
+
+    fn is_missing(&self, url: &String) -> Result<bool, BufkitDataErr> {
+        let num_missing: i32 = self.db_conn.query_row(
+            "SELECT COUNT(*) FROM missing WHERE url = ?1", 
+            &[url],
+            |row| row.get(0),
+        )?;
+
+        Ok(num_missing > 0)
+    }
+
+    fn add_url(&self, url: &String) -> Result<(), BufkitDataErr> {
+        self.db_conn.execute(
+            "INSERT INTO missing (url) VALUES (?1)",
+            &[url],
+        )?;
+
+        Ok(())
+    }
+}
+
