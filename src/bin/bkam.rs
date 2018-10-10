@@ -1,18 +1,22 @@
 //! BufKit Archive Manager
 extern crate bfkmd;
 extern crate bufkit_data;
+extern crate chrono;
 #[macro_use]
 extern crate clap;
 extern crate dirs;
 extern crate failure;
+extern crate pbr;
 extern crate sounding_bufkit;
 extern crate strum;
 
 use bfkmd::{bail, parse_date_string, TablePrinter};
 use bufkit_data::{Archive, BufkitDataErr, Model, Site, StateProv};
+use chrono::{NaiveDate, Utc};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use dirs::home_dir;
 use failure::{err_msg, Error, Fail};
+use pbr::ProgressBar;
 use sounding_bufkit::BufkitFile;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -204,6 +208,52 @@ fn run() -> Result<(), Error> {
                         .multiple(true)
                         .help("Source file to import."),
                 ),
+        ).subcommand(
+            SubCommand::with_name("purge")
+                .about("Delete some data from the archive.")
+                .arg(
+                    Arg::with_name("sites")
+                        .short("s")
+                        .long("sites")
+                        .takes_value(true)
+                        .multiple(true)
+                        .help("The site(s) to purge data for.")
+                        .long_help(concat!(
+                            "Purge data for these sites. This can be combined  with 'model' and",
+                            " 'before' or 'after' arguments to narrow the specification.")),
+                ).arg(
+                    Arg::with_name("models")
+                        .short("m")
+                        .long("models")
+                        .takes_value(true)
+                        .multiple(true)
+                        .help("The model(s) to purge data for, e.g. gfs, GFS, NAM4KM, nam.")
+                        .long_help(concat!(
+                            "Purge data for these models only. This can be combined with 'site' and",
+                            " 'before' or 'after' arguments to narrow the specification.")),
+                ).arg(
+                    Arg::with_name("before")
+                        .long("before")
+                        .takes_value(true)
+                        .help("Purge data before this time. YYYY-MM-DD-HH")
+                        .long_help(concat!(
+                            "Purge all data before this date. If this AND 'after' are not",
+                            " specified, then data for all times is purged. This can be combined",
+                            " with 'model' and 'site' arguments.")),
+                ).arg(
+                    Arg::with_name("after")
+                        .long("after")
+                        .takes_value(true)
+                        .conflicts_with("before")
+                        .help("Purge data after this time. YYYY-MM-DD-HH")
+                        .long_help(concat!(
+                            "Purge all data after this date. If this AND 'before' are not",
+                            " specified, then data for all times is purged. This can be combined",
+                            " with 'model' and 'site' arguments.")),
+                )
+        ).subcommand(
+            SubCommand::with_name("fix")
+                .about("Find and fix inconsistencies in the archive.")
         );
 
     let matches = app.get_matches();
@@ -219,6 +269,8 @@ fn run() -> Result<(), Error> {
         ("sites", Some(sub_args)) => sites(root, sub_args)?,
         ("export", Some(sub_args)) => export(root, sub_args)?,
         ("import", Some(sub_args)) => import(root, sub_args)?,
+        ("purge", Some(sub_args)) => purge(root, sub_args)?,
+        ("fix", Some(sub_args)) => fix(root, sub_args)?,
         _ => unreachable!(),
     }
 
@@ -584,6 +636,130 @@ fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
 
         arch.add_file(site, model, &init_time, f.raw_text())?;
     }
+
+    Ok(())
+}
+
+fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
+    let arch = Archive::connect(root)?;
+
+    let mut sites: Vec<String> = sub_args
+        .values_of("sites")
+        .into_iter()
+        .flat_map(|site_iter| site_iter.map(|arg_val| arg_val.to_owned()))
+        .collect();
+
+    let mut models: Vec<Model> = sub_args
+        .values_of("models")
+        .into_iter()
+        .flat_map(|model_iter| model_iter.map(Model::from_str))
+        .filter_map(|res| res.ok())
+        .collect();
+
+    let after = sub_args
+        .value_of("after")
+        .map(|after_str| parse_date_string(after_str))
+        .unwrap_or_else(|| NaiveDate::from_ymd(1900, 1, 1).and_hms(0, 0, 0));
+
+    let before = sub_args
+        .value_of("before")
+        .map(|before_str| parse_date_string(before_str))
+        .unwrap_or_else(|| Utc::now().naive_utc());
+
+    if sites.is_empty() {
+        sites = arch.get_sites()?.into_iter().map(|site| site.id).collect();
+    }
+
+    if models.is_empty() {
+        models = Model::iter().collect();
+    }
+
+    for site in &sites {
+        let available_models = arch.models_for_site(site)?;
+        for &model in &models {
+            if !available_models.contains(&model) {
+                continue;
+            }
+
+            let all_runs = model.all_runs(&after, &before);
+
+            for run in all_runs {
+                println!("  Removing {} {} {}.", site, model.as_static(), run);
+                match arch.remove_file(site, model, &run) {
+                    Ok(()) => {}
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Error> {
+    // Check that the root exists.
+    println!("Checking if the archive location exists.");
+    if !root.as_path().is_dir() {
+        println!("Archive root directory not found. Quitting.");
+        return Err(err_msg("Invalid root."));
+    } else {
+        println!("Found, moving on.\n");
+    }
+
+    // Check that the data directory exists
+    println!("Checking for the data directory within the archive.");
+    let data_dir = &root.join("data");
+    if !data_dir.as_path().is_dir() {
+        println!("Archive data directory not found. Archive is empty. Quitting.");
+        return Err(err_msg("Invalid data directory."));
+    } else {
+        println!("Found, moving on.\n");
+    }
+
+    // Check if there is a database, if not, create it!
+    println!("Trying to connect to the archive file index (database).");
+    let arch = match Archive::connect(root) {
+        Ok(arch) => {
+            println!("Found the archive file index. Moving on.\n");
+            arch
+        }
+        Err(err) => {
+            println!(
+                "Error connecting to archive database {}. Trying to create a new database.\n",
+                err
+            );
+            Archive::create_new(root)?
+        }
+    };
+
+    // Check that all the files listed in the index are also in the data directory
+    println!("Checking index for non-existent files.");
+    let (total_count, recv) = arch.clean_index()?;
+    let mut pb = ProgressBar::new(total_count as u64);
+    for (inc, msg_opt) in recv {
+        if let Some(msg) = msg_opt {
+            pb.message(&msg);
+        }
+
+        pb.set(inc as u64);
+    }
+    pb.finish();
+    println!("Done.\n");
+
+    // Check for extra files
+    println!("Checking that files in data directory belong and are in the index.");
+    let (total_count, recv) = arch.clean_data()?;
+    let mut pb = ProgressBar::new(total_count as u64);
+    for (inc, msg_opt) in recv {
+        if let Some(msg) = msg_opt {
+            let msg = format!(" {} ", msg);
+            pb.message(&msg);
+        }
+
+        pb.set(inc as u64);
+    }
+    pb.finish();
+    println!("Done.\n");
 
     Ok(())
 }
