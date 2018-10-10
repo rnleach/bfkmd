@@ -761,5 +761,10 @@ fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Error> {
     pb.finish();
     println!("Done.\n");
 
+    // Compress the database.
+    println!("Optimizing the index.");
+    arch.compress_index()?;
+    println!("Done.\n");
+
     Ok(())
 }
