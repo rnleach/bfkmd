@@ -743,7 +743,8 @@ fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Error> {
 
         pb.set(inc as u64);
     }
-    pb.finish_println("Done.\n");
+    pb.finish();
+    println!("Done.\n");
 
     // Check for extra files
     println!("Checking that files in data directory belong and are in the index.");
@@ -757,7 +758,8 @@ fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Error> {
 
         pb.set(inc as u64);
     }
-    pb.finish_println("Done.\n");
+    pb.finish();
+    println!("Done.\n");
 
     Ok(())
 }
