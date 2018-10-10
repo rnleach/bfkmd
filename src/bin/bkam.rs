@@ -6,6 +6,7 @@ extern crate chrono;
 extern crate clap;
 extern crate dirs;
 extern crate failure;
+extern crate pbr;
 extern crate sounding_bufkit;
 extern crate strum;
 
@@ -15,6 +16,7 @@ use chrono::{NaiveDate, Utc};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use dirs::home_dir;
 use failure::{err_msg, Error, Fail};
+use pbr::ProgressBar;
 use sounding_bufkit::BufkitFile;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -732,19 +734,30 @@ fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Error> {
 
     // Check that all the files listed in the index are also in the data directory
     println!("Checking index for non-existent files.");
-    let messages = arch.clean_index()?;
-    for message in messages {
-        println!("     {}", message);
+    let (total_count, recv) = arch.clean_index()?;
+    let mut pb = ProgressBar::new(total_count as u64);
+    for (inc, msg_opt) in recv {
+        if let Some(msg) = msg_opt {
+            pb.message(&msg);
+        }
+
+        pb.set(inc as u64);
     }
-    println!("Done.\n");
+    pb.finish_println("Done.\n");
 
     // Check for extra files
     println!("Checking that files in data directory belong and are in the index.");
-    let messages = arch.clean_data()?;
-    for message in messages {
-        println!("     {}", message);
+    let (total_count, recv) = arch.clean_data()?;
+    let mut pb = ProgressBar::new(total_count as u64);
+    for (inc, msg_opt) in recv {
+        if let Some(msg) = msg_opt {
+            let msg = format!(" {} ", msg);
+            pb.message(&msg);
+        }
+
+        pb.set(inc as u64);
     }
-    println!("Done");
+    pb.finish_println("Done.\n");
 
     Ok(())
 }
