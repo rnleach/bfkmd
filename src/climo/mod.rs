@@ -1,8 +1,8 @@
 use bufkit_data::{Archive, Model};
-use chrono::{NaiveDate, NaiveDateTime, Utc, Datelike, Timelike};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, Timelike, Utc};
 use failure::Error;
-use rusqlite::{Connection, OpenFlags, types::ToSql, NO_PARAMS};
-use sounding_analysis::{hot_dry_windy, haines_high, haines_mid, haines_low};
+use rusqlite::{types::ToSql, Connection, OpenFlags, NO_PARAMS};
+use sounding_analysis::{haines_high, haines_low, haines_mid, hot_dry_windy};
 use sounding_bufkit::BufkitData;
 use std::fs::create_dir;
 use std::path::Path;
@@ -29,7 +29,7 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
     )?;
 
     let (start_date, end_date) = get_current_climo_date_range(climo_db, site, model_str)?;
-    
+
     let (mut new_start_date, mut new_end_date) = if start_date == end_date {
         (
             NaiveDate::from_ymd(3000, 12, 31).and_hms(0, 0, 0),
@@ -64,7 +64,7 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
         flat_map(|anal_vec| anal_vec.into_iter())
     {
         let snd = anal.sounding();
-        let valid_time = match snd.get_valid_time(){
+        let valid_time = match snd.get_valid_time() {
             Some(valid_time) => valid_time,
             None => continue,
         };
@@ -72,7 +72,7 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
         let month = valid_time.month();
         let day = valid_time.day();
         let hour = valid_time.hour();
-        
+
         //
         //  Update inventory end time
         //
@@ -99,7 +99,18 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
         let hns_low = haines_low(snd).unwrap_or(0.0) as i32;
         let hns_mid = haines_mid(snd).unwrap_or(0.0) as i32;
         let hns_high = haines_high(snd).unwrap_or(0.0) as i32;
-        fire_stmt.execute(&[site as &ToSql, &model_str as &ToSql, &year as &ToSql, &month as &ToSql, &day as &ToSql, &hour as &ToSql, &hns_high as &ToSql, &hns_mid as &ToSql, &hns_low as &ToSql, &hdw as &ToSql])?;
+        fire_stmt.execute(&[
+            site as &ToSql,
+            &model_str as &ToSql,
+            &year as &ToSql,
+            &month as &ToSql,
+            &day as &ToSql,
+            &hour as &ToSql,
+            &hns_high as &ToSql,
+            &hns_mid as &ToSql,
+            &hns_low as &ToSql,
+            &hdw as &ToSql,
+        ])?;
 
         //
         // Things only to do for 0 lead time, don' need every sounding
@@ -120,11 +131,10 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
         let location = snd.get_station_info().location();
         let elevation = snd.get_station_info().elevation().into_option();
 
-        if let (Some(elev_m), Some((lat, lon))) = (elevation, location)
-        {
+        if let (Some(elev_m), Some((lat, lon))) = (elevation, location) {
             location_stmt.execute(&[
                 site as &ToSql,
-                &model_str  as &ToSql,
+                &model_str as &ToSql,
                 &valid_time as &ToSql,
                 &lat as &ToSql,
                 &lon as &ToSql,
@@ -141,7 +151,12 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
             INSERT OR REPLACE INTO inventory (site, model, start_date, end_date)
             VALUES ($1, $2, $3, $4)
         ",
-        &[site as &ToSql, &model_str as &ToSql, &new_start_date as &ToSql, &new_end_date as &ToSql],
+        &[
+            site as &ToSql,
+            &model_str as &ToSql,
+            &new_start_date as &ToSql,
+            &new_end_date as &ToSql,
+        ],
     )?;
 
     climo_db.execute(
@@ -149,7 +164,12 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
             INSERT OR REPLACE INTO max (site, model, hdw, hdw_date)
             VALUES ($1, $2, $3, $4)
         ",
-        &[site as &ToSql, &model_str as &ToSql, &hdw_max as &ToSql, &hdw_max_date as &ToSql],
+        &[
+            site as &ToSql,
+            &model_str as &ToSql,
+            &hdw_max as &ToSql,
+            &hdw_max_date as &ToSql,
+        ],
     )?;
 
     Ok(())
@@ -265,9 +285,11 @@ fn get_current_climo_date_range(
     }
 }
 
-fn get_current_maximums(climo_db: &Connection,
+fn get_current_maximums(
+    climo_db: &Connection,
     site: &str,
-    model_str: &str) -> Result<(i32, NaiveDateTime), Error> {
+    model_str: &str,
+) -> Result<(i32, NaiveDateTime), Error> {
     let res: Result<(Result<f64, _>, Result<NaiveDateTime, _>), _> = climo_db.query_row(
         "
             SELECT hdw, hdw_date FROM max WHERE site = ?1 and model = ?2
