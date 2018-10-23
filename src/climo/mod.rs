@@ -1,7 +1,7 @@
 use bufkit_data::{Archive, Model};
 use chrono::{NaiveDate, NaiveDateTime, Utc, Datelike, Timelike};
 use failure::Error;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, types::ToSql, NO_PARAMS};
 use sounding_analysis::{hot_dry_windy, haines_high, haines_mid, haines_low};
 use sounding_bufkit::BufkitData;
 use std::fs::create_dir;
@@ -99,7 +99,7 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
         let hns_low = haines_low(snd).unwrap_or(0.0) as i32;
         let hns_mid = haines_mid(snd).unwrap_or(0.0) as i32;
         let hns_high = haines_high(snd).unwrap_or(0.0) as i32;
-        fire_stmt.execute(&[site, &model_str, &year, &month, &day, &hour, &hns_high, &hns_mid, &hns_low, &hdw])?;
+        fire_stmt.execute(&[site as &ToSql, &model_str as &ToSql, &year as &ToSql, &month as &ToSql, &day as &ToSql, &hour as &ToSql, &hns_high as &ToSql, &hns_mid as &ToSql, &hns_low as &ToSql, &hdw as &ToSql])?;
 
         //
         // Things only to do for 0 lead time, don' need every sounding
@@ -123,12 +123,12 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
         if let (Some(elev_m), Some((lat, lon))) = (elevation, location)
         {
             location_stmt.execute(&[
-                site,
-                &model_str,
-                &valid_time,
-                &lat,
-                &lon,
-                &elev_m,
+                site as &ToSql,
+                &model_str  as &ToSql,
+                &valid_time as &ToSql,
+                &lat as &ToSql,
+                &lon as &ToSql,
+                &elev_m as &ToSql,
             ])?;
         }
     }
@@ -141,7 +141,7 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
             INSERT OR REPLACE INTO inventory (site, model, start_date, end_date)
             VALUES ($1, $2, $3, $4)
         ",
-        &[site, &model_str, &new_start_date, &new_end_date],
+        &[site as &ToSql, &model_str as &ToSql, &new_start_date as &ToSql, &new_end_date as &ToSql],
     )?;
 
     climo_db.execute(
@@ -149,7 +149,7 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
             INSERT OR REPLACE INTO max (site, model, hdw, hdw_date)
             VALUES ($1, $2, $3, $4)
         ",
-        &[site, &model_str, &hdw_max, &hdw_max_date],
+        &[site as &ToSql, &model_str as &ToSql, &hdw_max as &ToSql, &hdw_max_date as &ToSql],
     )?;
 
     Ok(())
@@ -185,7 +185,7 @@ fn create_or_overwrite(arch_root: &Path) -> Result<Connection, Error> {
                PRIMARY KEY (site, model)
            )
         ",
-        &[],
+        NO_PARAMS,
     )?;
 
     //
@@ -201,11 +201,11 @@ fn create_or_overwrite(arch_root: &Path) -> Result<Connection, Error> {
             elevation_m NUM  NOT NULL,
             UNIQUE(site, model, latitude, longitude, elevation_m)
         )",
-        &[],
+        NO_PARAMS,
     )?;
     db_conn.execute(
         "CREATE INDEX IF NOT EXISTS locations_idx ON locations (site, model)",
-        &[],
+        NO_PARAMS,
     )?;
 
     //
@@ -225,7 +225,7 @@ fn create_or_overwrite(arch_root: &Path) -> Result<Connection, Error> {
             hdw           INT,
             PRIMARY KEY (site, model, year, month, day, hour)
         )",
-        &[],
+        NO_PARAMS,
     )?;
 
     //
@@ -239,7 +239,7 @@ fn create_or_overwrite(arch_root: &Path) -> Result<Connection, Error> {
             hdw_date TEXT,
             PRIMARY KEY (site, model)
         )",
-        &[],
+        NO_PARAMS,
     )?;
 
     Ok(db_conn)
@@ -254,7 +254,7 @@ fn get_current_climo_date_range(
         "
             SELECT start_date, end_date FROM inventory WHERE site = ?1 and model = ?2
         ",
-        &[&site.to_uppercase(), &model_str],
+        &[&site.to_uppercase() as &ToSql, &model_str as &ToSql],
         |row| (row.get_checked(0), row.get_checked(1)),
     );
     if let Ok(res) = res {

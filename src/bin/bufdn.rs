@@ -25,7 +25,7 @@ use crossbeam_channel as channel;
 use dirs::home_dir;
 use failure::{Error, Fail};
 use reqwest::{Client, StatusCode};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -411,7 +411,7 @@ impl MissingUrlDb {
             "CREATE TABLE IF NOT EXISTS missing (
                 url TEXT PRIMARY KEY
             )",
-            &[],
+            NO_PARAMS,
         )?;
 
         Ok(MissingUrlDb { db_conn: db404 })
