@@ -3,7 +3,6 @@
 //
 // Public API
 //
-pub use climo::build_climo;
 pub use table_printer::TablePrinter;
 pub use util::{bail, parse_date_string};
 
@@ -19,6 +18,5 @@ extern crate sounding_bufkit;
 extern crate strum;
 extern crate unicode_width;
 
-mod climo;
 mod table_printer;
 mod util;

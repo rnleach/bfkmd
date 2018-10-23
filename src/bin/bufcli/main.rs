@@ -4,15 +4,22 @@
 //! archive. These can be queried later by other tools to provide context to any given analysis.
 extern crate bfkmd;
 extern crate bufkit_data;
+extern crate chrono;
 #[macro_use]
 extern crate clap;
 extern crate dirs;
 extern crate failure;
 #[macro_use]
 extern crate itertools;
+extern crate rusqlite;
+extern crate sounding_analysis;
+extern crate sounding_bufkit;
 extern crate strum;
 
-use bfkmd::{bail, build_climo};
+mod climo;
+
+use self::climo::build_climo;
+use bfkmd::bail;
 use bufkit_data::{Archive, Model};
 use clap::{App, Arg};
 use dirs::home_dir;

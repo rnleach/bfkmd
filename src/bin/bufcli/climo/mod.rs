@@ -9,7 +9,7 @@ use std::path::Path;
 use strum::AsStaticRef;
 
 //
-// TODO - split into multiple channels. 
+// TODO - split into multiple channels.
 //        First channel constructs list of site/model/init times to load
 //        Second channel loads files from arch
 //        Third channel communicates with climo database.
@@ -17,7 +17,7 @@ use strum::AsStaticRef;
 //        Fifth channel calcs inventory and count
 //
 //        Use queries to construct max/min and percentiles
-//       
+//
 //
 
 pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error> {
