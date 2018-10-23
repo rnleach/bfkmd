@@ -8,6 +8,18 @@ use std::fs::create_dir;
 use std::path::Path;
 use strum::AsStaticRef;
 
+//
+// TODO - split into multiple channels. 
+//        First channel constructs list of site/model/init times to load
+//        Second channel loads files from arch
+//        Third channel communicates with climo database.
+//        Fourth channel calcs fire stats
+//        Fifth channel calcs inventory and count
+//
+//        Use queries to construct max/min and percentiles
+//       
+//
+
 pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error> {
     let climo_db = &create_or_overwrite(arch.get_root())?;
     let site = &site.to_uppercase();
