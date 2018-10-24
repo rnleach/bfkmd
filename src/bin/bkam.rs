@@ -416,12 +416,12 @@ fn sites_list(
             .collect::<Vec<String>>()
             .join(",");
         let row = vec![
-            format!("{}", id),
-            format!("{}", state),
-            format!("{}", name),
-            format!("{}", auto_dl),
-            format!("{}", models),
-            format!("{}", notes),
+            id.to_string(),
+            state.to_string(),
+            name.to_string(),
+            auto_dl.to_string(),
+            models.to_string(),
+            notes.to_string(),
         ];
         table_printer.add_row(row);
     }
@@ -685,10 +685,7 @@ fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
 
             for run in all_runs {
                 println!("  Removing {} {} {}.", site, model.as_static(), run);
-                match arch.remove_file(site, model, &run) {
-                    Ok(()) => {}
-                    Err(_) => {}
-                }
+                if let Ok(()) = arch.remove_file(site, model, &run) {}
             }
         }
     }

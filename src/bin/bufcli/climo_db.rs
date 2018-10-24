@@ -1,4 +1,4 @@
-use chrono::{NaiveDateTime, Utc};
+use chrono::{Datelike, NaiveDateTime, Timelike, Utc};
 use failure::Error;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, Statement, NO_PARAMS};
@@ -268,15 +268,15 @@ impl<'a> ClimoDBInterface<'a> {
         &mut self,
         site: &str,
         model: &str,
-        year: i32,
-        month: u32,
-        day: u32,
-        hour: u32,
-        hns_high: i32,
-        hns_mid: i32,
-        hns_low: i32,
+        valid_time: &NaiveDateTime,
+        hns_high_mid_low: (i32, i32, i32),
         hdw: i32,
     ) -> Result<(), Error> {
+        let year = valid_time.year();
+        let month = valid_time.month();
+        let day = valid_time.day();
+        let hour = valid_time.hour();
+
         self.add_fire_data_query.execute(&[
             &site as &ToSql,
             &model as &ToSql,
@@ -284,9 +284,9 @@ impl<'a> ClimoDBInterface<'a> {
             &month as &ToSql,
             &day as &ToSql,
             &hour as &ToSql,
-            &hns_high as &ToSql,
-            &hns_mid as &ToSql,
-            &hns_low as &ToSql,
+            &hns_high_mid_low.0 as &ToSql,
+            &hns_high_mid_low.1 as &ToSql,
+            &hns_high_mid_low.2 as &ToSql,
             &hdw as &ToSql,
         ])?;
 

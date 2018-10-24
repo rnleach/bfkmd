@@ -1,5 +1,5 @@
 use bufkit_data::{Archive, Model};
-use chrono::{Datelike, NaiveDate, Timelike};
+use chrono::NaiveDate;
 use climo_db::{ClimoDB, ClimoDBInterface};
 use failure::Error;
 use sounding_analysis::{haines_high, haines_low, haines_mid, hot_dry_windy};
@@ -65,10 +65,6 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
             Some(valid_time) => valid_time,
             None => continue,
         };
-        let year = valid_time.year();
-        let month = valid_time.month();
-        let day = valid_time.day();
-        let hour = valid_time.hour();
 
         //
         //  Update inventory end time
@@ -97,7 +93,11 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
         let hns_mid = haines_mid(snd).unwrap_or(0.0) as i32;
         let hns_high = haines_high(snd).unwrap_or(0.0) as i32;
         climo_db.add_fire(
-            site, model_str, year, month, day, hour, hns_high, hns_mid, hns_low, hdw,
+            site,
+            model_str,
+            &valid_time,
+            (hns_high, hns_mid, hns_low),
+            hdw,
         )?;
 
         //
