@@ -17,6 +17,7 @@ extern crate sounding_bufkit;
 extern crate strum;
 
 mod builder;
+mod climo_db;
 
 use self::builder::build_climo;
 use bfkmd::bail;
