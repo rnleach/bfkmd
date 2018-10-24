@@ -16,9 +16,9 @@ extern crate sounding_analysis;
 extern crate sounding_bufkit;
 extern crate strum;
 
-mod climo;
+mod builder;
 
-use self::climo::build_climo;
+use self::builder::build_climo;
 use bfkmd::bail;
 use bufkit_data::{Archive, Model};
 use clap::{App, Arg};

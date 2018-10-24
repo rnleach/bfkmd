@@ -10,7 +10,7 @@ use strum::AsStaticRef;
 
 //
 // TODO - split into multiple channels.
-//        First channel constructs list of site/model/init times to load
+//        main channel constructs list of site/model/init times to load
 //        Second channel loads files from arch
 //        Third channel communicates with climo database.
 //        Fourth channel calcs fire stats
