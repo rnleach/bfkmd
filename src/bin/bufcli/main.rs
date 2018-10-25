@@ -57,7 +57,8 @@ fn run() -> Result<(), Error> {
     let args = &parse_args()?;
 
     match args.operation.as_ref() {
-        "build" => build(args),
+        "build" => build(args, true),
+        "update" => build(args, false),
         "show" => show(args),
         "reset" => reset(args),
         _ => bail("Unknown operation."),
@@ -101,17 +102,6 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                     " Default is to use all possible values."
                 )),
         ).arg(
-            Arg::with_name("save-dir")
-                .long("save-dir")
-                .takes_value(true)
-                .help("Directory to save .csv files to.")
-                .long_help(concat!(
-                    "Directory to save .csv files to. If this is specified then a file",
-                    " 'site_model.csv' is created for each site and model in that directory with",
-                    " data for each graph statistic specified. The exported data is set by the -g",
-                    " option."
-                )),
-        ).arg(
             Arg::with_name("root")
                 .short("r")
                 .long("root")
@@ -126,12 +116,12 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                 .index(1)
                 .takes_value(true)
                 .required(true)
-                .possible_values(&["build", "show", "reset"])
-                .help("Either build or show the climatology. reset deletes the while database.")
+                .possible_values(&["build", "show", "reset", "update"])
+                .help("Either build or show the climatology. reset deletes the whole database.")
                 .long_help(concat!(
-                    "Either build, show, or reset the climate database. reset deletes the whole",
-                    " climate database and starts over fresh. Build will only add data for dates",
-                    " not already in the database.",
+                    "Either build, update, show, or reset the climate database. reset deletes the",
+                    " whole climate database and starts over fresh. Update will only add data for",
+                    " dates not already in the database.",
                 )),
         );
 
@@ -203,11 +193,11 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
     })
 }
 
-fn build(args: &CmdLineArgs) -> Result<(), Error> {
+fn build(args: &CmdLineArgs, from_scratch: bool) -> Result<(), Error> {
     let arch = &Archive::connect(&args.root)?;
 
     for (site, &model) in iproduct!(&args.sites, &args.models) {
-        build_climo(arch, site, model)?;
+        build_climo(arch, site, model, from_scratch)?;
     }
 
     Ok(())

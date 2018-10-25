@@ -8,7 +8,7 @@ use sounding_analysis::{haines_high, haines_low, haines_mid, hot_dry_windy, Anal
 use sounding_bufkit::BufkitData;
 use std::thread::{self, JoinHandle};
 
-pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error> {
+pub fn build_climo(arch: &Archive, site: &str, model: Model, from_scratch: bool) -> Result<(), Error> {
     let root = arch.get_root();
 
     // Channel to transmit errors back to main (this) thread.
@@ -21,7 +21,7 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
     // Set up a generator that compares the dates in the archive to those in the climo database and
     // filters out dates already in the climate period of record.
     let (date_generator_handle, date_receiver, num_dates) =
-        date_generator(arch, site, model, to_climo_db.clone(), error_sender.clone())?;
+        date_generator(arch, site, model, from_scratch, to_climo_db.clone(), error_sender.clone())?;
 
     // Set up a thread to load the files as strings
     let (file_loader_handle, string_receiver) =
@@ -31,12 +31,15 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
     let (parser_handle, anal_receiver) =
         sounding_parser(string_receiver, model, error_sender.clone());
 
+    // Set up a thread to calculate the stats.
     let (fire_stats_handle, anal_receiver) =
         fire_stats_calculator(anal_receiver, to_climo_db.clone(), error_sender.clone());
 
+    // Set up a thread to calculate the locations.
     let (locations_handle, anal_receiver) =
         location_updater(anal_receiver, to_climo_db.clone(), error_sender.clone());
 
+    // Set up a thread to show a progress bar for this site/model
     let (progress_handle, progress_sender) = progress_indicator(num_dates, site, model);
 
     // Clean up
@@ -44,6 +47,8 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
     drop(error_sender);
 
     let mut data_errors = vec![];
+    let mut anal_done = false;
+    let mut error_done = false;
     loop {
         select!{
             recv(error_receiver, msg) => {
@@ -54,6 +59,8 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
                             data_errors.push((init_time, err));
                         },
                     }
+                } else {
+                    error_done = true;
                 }
             },
             recv(anal_receiver, msg) => {
@@ -61,9 +68,13 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model) -> Result<(), Error
                     Some((i, _, _)) =>{
                         progress_sender.send(i);
                     },
-                    None => break,
+                    None => anal_done = true,
                 }
             },
+        }
+
+        if anal_done && error_done {
+            break;
         }
     }
     drop(progress_sender);
@@ -98,6 +109,7 @@ fn date_generator(
     arch: &Archive,
     site: &str,
     model: Model,
+    from_scratch: bool,
     to_climo_db: Sender<DBRequest>,
     error_stream: Sender<ErrorMessage>,
 ) -> Result<(JoinHandle<()>, Receiver<(usize, NaiveDateTime)>, usize), Error> {
@@ -125,7 +137,7 @@ fn date_generator(
         for (i, init_time) in init_times
             .into_iter()
             .enumerate()
-            .filter(|&(_, init_time)| init_time < start || init_time > end)
+            .filter(|&(_, init_time)| from_scratch || init_time < start || init_time > end)
         {
             sender.send((i, init_time));
         }
