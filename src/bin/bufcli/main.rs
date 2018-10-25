@@ -7,10 +7,14 @@ extern crate bufkit_data;
 extern crate chrono;
 #[macro_use]
 extern crate clap;
+#[macro_use]
+extern crate crossbeam_channel;
 extern crate dirs;
+#[macro_use]
 extern crate failure;
 #[macro_use]
 extern crate itertools;
+extern crate pbr;
 extern crate rusqlite;
 extern crate sounding_analysis;
 extern crate sounding_bufkit;

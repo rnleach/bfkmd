@@ -1,9 +1,13 @@
+use bufkit_data::Model;
 use chrono::{Datelike, NaiveDateTime, Timelike, Utc};
+use crossbeam_channel::{self, Receiver, Sender};
 use failure::Error;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, Statement, NO_PARAMS};
 use std::fs::create_dir;
 use std::path::Path;
+use std::{thread, thread::JoinHandle};
+use strum::AsStaticRef;
 
 pub struct ClimoDB {
     conn: Connection,
@@ -83,20 +87,6 @@ impl ClimoDB {
             NO_PARAMS,
         )?;
 
-        //
-        // Create tables for extremes.
-        //
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS max (
-                site     TEXT NOT NULL,
-                model    TEXT NOT NULL,
-                hdw      INT,
-                hdw_date TEXT,
-                PRIMARY KEY (site, model)
-            )",
-            NO_PARAMS,
-        )?;
-
         Ok(ClimoDB { conn })
     }
 }
@@ -105,63 +95,54 @@ impl ClimoDB {
 pub struct ClimoDBInterface<'a> {
     get_date_range_query: Statement<'a>,
     update_inventory_query: Statement<'a>,
-    get_max_query: Statement<'a>,
-    update_max_query: Statement<'a>,
     add_location_query: Statement<'a>,
     add_fire_data_query: Statement<'a>,
 }
 
 impl<'a> ClimoDBInterface<'a> {
-    pub fn initialize(climo_db: &'a ClimoDB) -> Result<Self, Error> {
+    pub fn initialize(climo_db: &'a ClimoDB, site: &str, model: Model) -> Result<Self, Error> {
         let conn = &climo_db.conn;
+        let site = site.to_uppercase();
+        let model = model.as_static().to_string();
 
-        let get_date_range_query = conn.prepare(
+        let get_date_range_query = conn.prepare(&format!(
             "
-                SELECT start_date, end_date FROM inventory WHERE site = ?1 and model = ?2
-            ",
-        )?;
+                    SELECT start_date, end_date FROM inventory WHERE site = '{}' and model = '{}'
+                ",
+            site, model,
+        ))?;
 
-        let update_inventory_query = conn.prepare(
+        let update_inventory_query = conn.prepare(&format!(
             "
-                INSERT OR REPLACE INTO inventory (site, model, start_date, end_date)
-                VALUES ($1, $2, $3, $4)
-            ",
-        )?;
+                    INSERT OR REPLACE INTO inventory (site, model, start_date, end_date)
+                    VALUES ('{}', '{}', $1, $2)
+                ",
+            site, model,
+        ))?;
 
-        let get_max_query = conn.prepare(
+        let add_location_query = conn.prepare(&format!(
             "
-                SELECT hdw, hdw_date FROM max WHERE site = ?1 and model = ?2
-            ",
-        )?;
-
-        let update_max_query = conn.prepare(
-            "
-                INSERT OR REPLACE INTO max (site, model, hdw, hdw_date)
-                VALUES ($1, $2, $3, $4)
-            ",
-        )?;
-
-        let add_location_query = conn.prepare(
-            "
-                INSERT OR IGNORE INTO 
-                locations (site, model, start_date, latitude, longitude, elevation_m)
-                VALUES(?1, ?2, ?3, ?4, ?5, ?6)
-            ",
-        )?;
+                    INSERT OR IGNORE INTO 
+                    locations (site, model, start_date, latitude, longitude, elevation_m)
+                    VALUES('{}', '{}', ?1, ?2, ?3, ?4)
+                ",
+            site, model,
+        ))?;
 
         let add_fire_data_query = conn.prepare(
-            "
-                INSERT OR REPLACE INTO
-                fire (site, model, year, month, day, hour, haines_high, haines_mid, haines_low, hdw)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-            ",
+            &format!(
+                "
+                    INSERT OR REPLACE INTO
+                    fire (site, model, year, month, day, hour, haines_high, haines_mid, haines_low, hdw)
+                    VALUES ('{}', '{}', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                ",
+                site, model,
+            ),
         )?;
 
         Ok(ClimoDBInterface {
             get_date_range_query,
             update_inventory_query,
-            get_max_query,
-            update_max_query,
             add_location_query,
             add_fire_data_query,
         })
@@ -170,14 +151,10 @@ impl<'a> ClimoDBInterface<'a> {
     #[inline]
     pub fn get_current_climo_date_range(
         &mut self,
-        site: &str,
-        model_str: &str,
     ) -> Result<(NaiveDateTime, NaiveDateTime), Error> {
         let res: Result<(Result<NaiveDateTime, _>, Result<NaiveDateTime, _>), _> = self
             .get_date_range_query
-            .query_row(&[&site as &ToSql, &model_str as &ToSql], |row| {
-                (row.get_checked(0), row.get_checked(1))
-            });
+            .query_row(NO_PARAMS, |row| (row.get_checked(0), row.get_checked(1)));
 
         if let Ok(res) = res {
             Ok((res.0?, res.1?))
@@ -190,53 +167,11 @@ impl<'a> ClimoDBInterface<'a> {
     #[inline]
     pub fn update_inventory(
         &mut self,
-        site: &str,
-        model: &str,
-        new_start_date: &NaiveDateTime,
-        new_end_date: &NaiveDateTime,
+        new_start_date: NaiveDateTime,
+        new_end_date: NaiveDateTime,
     ) -> Result<(), Error> {
-        self.update_inventory_query.execute(&[
-            &site as &ToSql,
-            &model as &ToSql,
-            new_start_date as &ToSql,
-            new_end_date as &ToSql,
-        ])?;
-
-        Ok(())
-    }
-
-    #[inline]
-    pub fn get_current_maximums(
-        &mut self,
-        site: &str,
-        model_str: &str,
-    ) -> Result<(i32, NaiveDateTime), Error> {
-        let res: Result<(Result<f64, _>, Result<NaiveDateTime, _>), _> =
-            self.get_max_query.query_row(&[&site, &model_str], |row| {
-                (row.get_checked(0), row.get_checked(1))
-            });
-        if let Ok(res) = res {
-            Ok((res.0? as i32, res.1?))
-        } else {
-            let now = Utc::now().naive_utc();
-            Ok((0, now))
-        }
-    }
-
-    #[inline]
-    pub fn update_maximums(
-        &mut self,
-        site: &str,
-        model: &str,
-        hdw: i32,
-        hdw_date: &NaiveDateTime,
-    ) -> Result<(), Error> {
-        self.update_max_query.execute(&[
-            &site as &ToSql,
-            &model as &ToSql,
-            &hdw as &ToSql,
-            &hdw_date as &ToSql,
-        ])?;
+        self.update_inventory_query
+            .execute(&[&new_start_date as &ToSql, &new_end_date as &ToSql])?;
 
         Ok(())
     }
@@ -244,17 +179,13 @@ impl<'a> ClimoDBInterface<'a> {
     #[inline]
     pub fn add_location(
         &mut self,
-        site: &str,
-        model: &str,
-        valid_time: &NaiveDateTime,
+        valid_time: NaiveDateTime,
         lat: f64,
         lon: f64,
         elev_m: f64,
     ) -> Result<(), Error> {
         self.add_location_query.execute(&[
-            &site as &ToSql,
-            &model as &ToSql,
-            valid_time as &ToSql,
+            &valid_time as &ToSql,
             &lat as &ToSql,
             &lon as &ToSql,
             &elev_m as &ToSql,
@@ -266,9 +197,7 @@ impl<'a> ClimoDBInterface<'a> {
     #[inline]
     pub fn add_fire(
         &mut self,
-        site: &str,
-        model: &str,
-        valid_time: &NaiveDateTime,
+        valid_time: NaiveDateTime,
         hns_high_mid_low: (i32, i32, i32),
         hdw: i32,
     ) -> Result<(), Error> {
@@ -278,8 +207,6 @@ impl<'a> ClimoDBInterface<'a> {
         let hour = valid_time.hour();
 
         self.add_fire_data_query.execute(&[
-            &site as &ToSql,
-            &model as &ToSql,
             &year as &ToSql,
             &month as &ToSql,
             &day as &ToSql,
@@ -292,4 +219,73 @@ impl<'a> ClimoDBInterface<'a> {
 
         Ok(())
     }
+}
+
+#[derive(Debug)]
+pub enum DBRequest {
+    GetClimoDateRange(Sender<DBResponse>),
+    UpdateInventory(NaiveDateTime, NaiveDateTime),
+    AddLocation(NaiveDateTime, f64, f64, f64),
+    AddFire(NaiveDateTime, (i32, i32, i32), i32),
+}
+
+#[derive(Debug)]
+pub enum DBResponse {
+    ClimoDateRange(NaiveDateTime, NaiveDateTime),
+}
+
+pub fn start_climo_db_thread(
+    arch_root: &Path,
+    site: &str,
+    model: Model,
+    quitter: Sender<Error>,
+) -> (JoinHandle<()>, Sender<DBRequest>) {
+    use self::DBRequest::*;
+    use self::DBResponse::*;
+
+    let (sender, recv): (Sender<DBRequest>, Receiver<_>) = crossbeam_channel::bounded(256);
+    let root = arch_root.to_owned();
+    let site = site.to_string();
+
+    let join_handle = thread::spawn(move || -> () {
+        let climo_db = match ClimoDB::open_or_create(&root) {
+            Ok(db) => db,
+            Err(err) => {
+                quitter.send(err);
+                return;
+            }
+        };
+
+        let mut climo_db = match ClimoDBInterface::initialize(&climo_db, &site, model) {
+            Ok(iface) => iface,
+            Err(err) => {
+                quitter.send(err);
+                return;
+            }
+        };
+
+        for req in recv {
+            let res = match req {
+                GetClimoDateRange(sender) => climo_db
+                    .get_current_climo_date_range()
+                    .map(|(start, end)| ClimoDateRange(start, end))
+                    .and_then(|response| {
+                        sender.send(response);
+                        Ok(())
+                    }),
+                UpdateInventory(start, end) => climo_db.update_inventory(start, end),
+                AddLocation(start_time, lat, lon, elev_m) => {
+                    climo_db.add_location(start_time, lat, lon, elev_m)
+                }
+                AddFire(valid_time, haines, hdw) => climo_db.add_fire(valid_time, haines, hdw),
+            };
+
+            if let Err(err) = res {
+                quitter.send(err);
+                return;
+            }
+        }
+    });
+
+    (join_handle, sender)
 }
