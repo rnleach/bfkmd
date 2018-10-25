@@ -233,44 +233,46 @@ pub fn start_climo_db_thread(
     let root = arch_root.to_owned();
     let site = site.to_string();
 
-    let join_handle = thread::spawn(move || -> () {
-        let climo_db = match ClimoDB::open_or_create(&root) {
-            Ok(db) => db,
-            Err(err) => {
-                error_stream.send(ErrorMessage::Critical(err));
-                return;
-            }
-        };
-
-        let mut climo_db = match ClimoDBInterface::initialize(&climo_db, &site, model) {
-            Ok(iface) => iface,
-            Err(err) => {
-                error_stream.send(ErrorMessage::Critical(err));
-                return;
-            }
-        };
-
-        for req in recv {
-            let res = match req {
-                GetClimoDateRange(sender) => climo_db
-                    .get_current_climo_date_range(&site, model)
-                    .map(|(start, end)| ClimoDateRange(start, end))
-                    .and_then(|response| {
-                        sender.send(response);
-                        Ok(())
-                    }),
-                AddLocation(start_time, lat, lon, elev_m) => {
-                    climo_db.add_location(start_time, lat, lon, elev_m)
+    let join_handle = thread::Builder::new()
+        .name("climo_db".to_owned())
+        .spawn(move || -> () {
+            let climo_db = match ClimoDB::open_or_create(&root) {
+                Ok(db) => db,
+                Err(err) => {
+                    error_stream.send(ErrorMessage::Critical(err));
+                    return;
                 }
-                AddFire(valid_time, haines, hdw) => climo_db.add_fire(valid_time, haines, hdw),
             };
 
-            if let Err(err) = res {
-                error_stream.send(ErrorMessage::Critical(err));
-                return;
+            let mut climo_db = match ClimoDBInterface::initialize(&climo_db, &site, model) {
+                Ok(iface) => iface,
+                Err(err) => {
+                    error_stream.send(ErrorMessage::Critical(err));
+                    return;
+                }
+            };
+
+            for req in recv {
+                let res = match req {
+                    GetClimoDateRange(sender) => climo_db
+                        .get_current_climo_date_range(&site, model)
+                        .map(|(start, end)| ClimoDateRange(start, end))
+                        .and_then(|response| {
+                            sender.send(response);
+                            Ok(())
+                        }),
+                    AddLocation(start_time, lat, lon, elev_m) => {
+                        climo_db.add_location(start_time, lat, lon, elev_m)
+                    }
+                    AddFire(valid_time, haines, hdw) => climo_db.add_fire(valid_time, haines, hdw),
+                };
+
+                if let Err(err) = res {
+                    error_stream.send(ErrorMessage::Critical(err));
+                    return;
+                }
             }
-        }
-    });
+        }).unwrap();
 
     (join_handle, sender)
 }

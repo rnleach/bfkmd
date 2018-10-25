@@ -129,30 +129,32 @@ fn date_generator(
     let init_times = arch.get_init_times(site, model)?;
     let total = init_times.len();
 
-    let handle = thread::spawn(move || {
-        // Get the period of climate data currently in the database.
-        let (send_to_me, from_climo_db) = crossbeam_channel::bounded::<DBResponse>(1);
-        let req = DBRequest::GetClimoDateRange(send_to_me);
-        to_climo_db.send(req);
+    let handle = thread::Builder::new()
+        .name("date_generator".to_owned())
+        .spawn(move || {
+            // Get the period of climate data currently in the database.
+            let (send_to_me, from_climo_db) = crossbeam_channel::bounded::<DBResponse>(1);
+            let req = DBRequest::GetClimoDateRange(send_to_me);
+            to_climo_db.send(req);
 
-        let (start, end) =
-            if let Some(DBResponse::ClimoDateRange(start, end)) = from_climo_db.recv() {
-                (start, end)
-            } else {
-                error_stream.send(ErrorMessage::Critical(format_err!(
-                    "Invalid response from climo database."
-                )));
-                return;
-            };
+            let (start, end) =
+                if let Some(DBResponse::ClimoDateRange(start, end)) = from_climo_db.recv() {
+                    (start, end)
+                } else {
+                    error_stream.send(ErrorMessage::Critical(format_err!(
+                        "Invalid response from climo database."
+                    )));
+                    return;
+                };
 
-        for (i, init_time) in init_times
-            .into_iter()
-            .enumerate()
-            .filter(|&(_, init_time)| from_scratch || init_time < start || init_time > end)
-        {
-            sender.send((i, init_time));
-        }
-    });
+            for (i, init_time) in init_times
+                .into_iter()
+                .enumerate()
+                .filter(|&(_, init_time)| from_scratch || init_time < start || init_time > end)
+            {
+                sender.send((i, init_time));
+            }
+        })?;
 
     Ok((handle, receiver, total))
 }
@@ -168,24 +170,26 @@ fn file_loader(
     let (sender, receiver) = crossbeam_channel::bounded::<(usize, NaiveDateTime, String)>(256);
     let site = site.to_owned();
 
-    let handle = thread::spawn(move || {
-        let arch = match Archive::connect(&root) {
-            Ok(arch) => arch,
-            Err(err) => {
-                error_stream.send(ErrorMessage::Critical(Error::from(err)));
-                return;
-            }
-        };
-
-        for (i, init_time) in init_times {
-            match arch.get_file(&site, model, &init_time) {
-                Ok(string_data) => sender.send((i, init_time, string_data)),
+    let handle = thread::Builder::new()
+        .name("file_loader".to_owned())
+        .spawn(move || {
+            let arch = match Archive::connect(&root) {
+                Ok(arch) => arch,
                 Err(err) => {
-                    error_stream.send(ErrorMessage::DataError(init_time, Error::from(err)));
+                    error_stream.send(ErrorMessage::Critical(Error::from(err)));
+                    return;
+                }
+            };
+
+            for (i, init_time) in init_times {
+                match arch.get_file(&site, model, &init_time) {
+                    Ok(string_data) => sender.send((i, init_time, string_data)),
+                    Err(err) => {
+                        error_stream.send(ErrorMessage::DataError(init_time, Error::from(err)));
+                    }
                 }
             }
-        }
-    });
+        }).unwrap();
 
     (handle, receiver)
 }
@@ -197,32 +201,34 @@ fn sounding_parser(
 ) -> (JoinHandle<()>, Receiver<(usize, NaiveDateTime, Analysis)>) {
     let (sender, receiver) = crossbeam_channel::bounded::<(usize, NaiveDateTime, Analysis)>(256);
 
-    let handle = thread::spawn(move || {
-        for (i, init_time, string) in strings {
-            let bufkit_data = match BufkitData::new(&string) {
-                Ok(bufkit_data) => bufkit_data,
-                Err(err) => {
-                    error_stream.send(ErrorMessage::DataError(init_time, err));
-                    continue;
-                }
-            };
+    let handle = thread::Builder::new()
+        .name("sounding_parser".to_owned())
+        .spawn(move || {
+            for (i, init_time, string) in strings {
+                let bufkit_data = match BufkitData::new(&string) {
+                    Ok(bufkit_data) => bufkit_data,
+                    Err(err) => {
+                        error_stream.send(ErrorMessage::DataError(init_time, err));
+                        continue;
+                    }
+                };
 
-            for anal in bufkit_data
-                .into_iter()
-                .take(model.hours_between_runs() as usize)
-            {
-                if let Some(valid_time) = anal.sounding().get_valid_time() {
-                    sender.send((i, valid_time, anal));
-                } else {
-                    error_stream.send(ErrorMessage::DataError(
-                        init_time,
-                        format_err!("No valid time."),
-                    ));
-                    continue;
+                for anal in bufkit_data
+                    .into_iter()
+                    .take(model.hours_between_runs() as usize)
+                {
+                    if let Some(valid_time) = anal.sounding().get_valid_time() {
+                        sender.send((i, valid_time, anal));
+                    } else {
+                        error_stream.send(ErrorMessage::DataError(
+                            init_time,
+                            format_err!("No valid time."),
+                        ));
+                        continue;
+                    }
                 }
             }
-        }
-    });
+        }).unwrap();
 
     (handle, receiver)
 }
@@ -235,35 +241,38 @@ fn fire_stats_calculator(
     let (anal_sender, anal_receiver) =
         crossbeam_channel::bounded::<(usize, NaiveDateTime, Analysis)>(256);
 
-    let handle = thread::spawn(move || {
-        for (i, valid_time, anal) in anals {
-            {
-                let snd = anal.sounding();
+    let handle = thread::Builder::new()
+        .name("fire_stats_calculator".to_owned())
+        .spawn(move || {
+            for (i, valid_time, anal) in anals {
+                {
+                    let snd = anal.sounding();
 
-                // unwrap safe because we checked for it in parser
-                let valid_time = snd.get_valid_time().unwrap();
+                    // unwrap safe because we checked for it in parser
+                    let valid_time = snd.get_valid_time().unwrap();
 
-                let hns_low = haines_low(snd).unwrap_or(0.0) as i32;
-                let hns_mid = haines_mid(snd).unwrap_or(0.0) as i32;
-                let hns_high = haines_high(snd).unwrap_or(0.0) as i32;
+                    let hns_low = haines_low(snd).unwrap_or(0.0) as i32;
+                    let hns_mid = haines_mid(snd).unwrap_or(0.0) as i32;
+                    let hns_high = haines_high(snd).unwrap_or(0.0) as i32;
 
-                let hdw = match hot_dry_windy(snd) {
-                    Ok(hdw) => hdw as i32,
-                    Err(err) => {
-                        error_stream.send(ErrorMessage::DataError(valid_time, Error::from(err)));
-                        continue;
-                    }
-                };
+                    let hdw = match hot_dry_windy(snd) {
+                        Ok(hdw) => hdw as i32,
+                        Err(err) => {
+                            error_stream
+                                .send(ErrorMessage::DataError(valid_time, Error::from(err)));
+                            continue;
+                        }
+                    };
 
-                to_climo_db.send(DBRequest::AddFire(
-                    valid_time,
-                    (hns_high, hns_mid, hns_low),
-                    hdw,
-                ));
+                    to_climo_db.send(DBRequest::AddFire(
+                        valid_time,
+                        (hns_high, hns_mid, hns_low),
+                        hdw,
+                    ));
+                }
+                anal_sender.send((i, valid_time, anal));
             }
-            anal_sender.send((i, valid_time, anal));
-        }
-    });
+        }).unwrap();
 
     (handle, anal_receiver)
 }
@@ -275,29 +284,31 @@ fn location_updater(
 ) -> (JoinHandle<()>, Receiver<(usize, NaiveDateTime, Analysis)>) {
     let (sender, receiver) = crossbeam_channel::bounded::<(usize, NaiveDateTime, Analysis)>(256);
 
-    let handle = thread::spawn(move || {
-        for (i, valid_time, anal) in anals {
-            if anal
-                .sounding()
-                .get_lead_time()
-                .into_option()
-                .map(|lt| lt == 0)
-                .unwrap_or(true)
-            {
-                let snd = anal.sounding();
+    let handle = thread::Builder::new()
+        .name("location_updater".to_owned())
+        .spawn(move || {
+            for (i, valid_time, anal) in anals {
+                if anal
+                    .sounding()
+                    .get_lead_time()
+                    .into_option()
+                    .map(|lt| lt == 0)
+                    .unwrap_or(true)
+                {
+                    let snd = anal.sounding();
 
-                let location = snd.get_station_info().location();
-                let elevation = snd.get_station_info().elevation().into_option();
+                    let location = snd.get_station_info().location();
+                    let elevation = snd.get_station_info().elevation().into_option();
 
-                if let (Some(elev_m), Some((lat, lon))) = (elevation, location) {
-                    let req = DBRequest::AddLocation(valid_time, lat, lon, elev_m);
-                    to_climo_db.send(req);
+                    if let (Some(elev_m), Some((lat, lon))) = (elevation, location) {
+                        let req = DBRequest::AddLocation(valid_time, lat, lon, elev_m);
+                        to_climo_db.send(req);
+                    }
                 }
-            }
 
-            sender.send((i, valid_time, anal));
-        }
-    });
+                sender.send((i, valid_time, anal));
+            }
+        }).unwrap();
 
     (handle, receiver)
 }
@@ -306,15 +317,17 @@ fn progress_indicator(total: usize, site: &str, model: Model) -> (JoinHandle<()>
     let site = site.to_owned();
     let (sender, receiver) = crossbeam_channel::bounded::<usize>(256);
 
-    let handle = thread::spawn(move || {
-        println!("Progress for site {} and model {}.", site, model);
+    let handle = thread::Builder::new()
+        .name("progress_indicator".to_owned())
+        .spawn(move || {
+            println!("Progress for site {} and model {}.", site, model);
 
-        let mut pb = ProgressBar::new(total as u64);
-        for inc in receiver {
-            pb.set(inc as u64);
-        }
-        pb.finish();
-    });
+            let mut pb = ProgressBar::new(total as u64);
+            for inc in receiver {
+                pb.set(inc as u64);
+            }
+            pb.finish();
+        }).unwrap();
 
     (handle, sender)
 }
