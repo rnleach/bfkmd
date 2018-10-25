@@ -35,7 +35,7 @@ pub fn build_climo(
     )?;
 
     // Set up a thread to load the files as strings
-    let (file_loader_handle, string_receiver) =
+    let (file_loader_handles, string_receiver) =
         file_loader(arch, site, model, date_receiver, error_sender.clone());
 
     // Set up a thread to parse the strings into soundings
@@ -93,7 +93,9 @@ pub fn build_climo(
     // Clean up
     climo_handle.join().unwrap();
     date_generator_handle.join().unwrap();
-    file_loader_handle.join().unwrap();
+    for handle in file_loader_handles{
+        handle.join().unwrap();
+    }
     parser_handle.join().unwrap();
     fire_stats_handle.join().unwrap();
     locations_handle.join().unwrap();
@@ -165,33 +167,45 @@ fn file_loader(
     model: Model,
     init_times: Receiver<(usize, NaiveDateTime)>,
     error_stream: Sender<ErrorMessage>,
-) -> (JoinHandle<()>, Receiver<(usize, NaiveDateTime, String)>) {
-    let root = arch.get_root().to_owned();
+) -> (Vec<JoinHandle<()>>, Receiver<(usize, NaiveDateTime, String)>) {
+    
     let (sender, receiver) = crossbeam_channel::bounded::<(usize, NaiveDateTime, String)>(256);
-    let site = site.to_owned();
+    
+    const NUM_LOADERS: usize = 4;
+    let mut handles = vec![];
 
-    let handle = thread::Builder::new()
-        .name("file_loader".to_owned())
-        .spawn(move || {
-            let arch = match Archive::connect(&root) {
-                Ok(arch) => arch,
-                Err(err) => {
-                    error_stream.send(ErrorMessage::Critical(Error::from(err)));
-                    return;
-                }
-            };
+    for i in 0..NUM_LOADERS {
+        let root = arch.get_root().to_owned();
+        let local_init_times = init_times.clone();
+        let local_error_stream = error_stream.clone();
+        let local_sender = sender.clone();
+        let site = site.to_owned();
 
-            for (i, init_time) in init_times {
-                match arch.get_file(&site, model, &init_time) {
-                    Ok(string_data) => sender.send((i, init_time, string_data)),
+        let handle = thread::Builder::new()
+            .name(format!("file_loader_{}", i))
+            .spawn(move || {
+                let arch = match Archive::connect(&root) {
+                    Ok(arch) => arch,
                     Err(err) => {
-                        error_stream.send(ErrorMessage::DataError(init_time, Error::from(err)));
+                        local_error_stream.send(ErrorMessage::Critical(Error::from(err)));
+                        return;
+                    }
+                };
+
+                for (i, init_time) in local_init_times {
+                    match arch.get_file(&site, model, &init_time) {
+                        Ok(string_data) => local_sender.send((i, init_time, string_data)),
+                        Err(err) => {
+                            local_error_stream.send(ErrorMessage::DataError(init_time, Error::from(err)));
+                        }
                     }
                 }
-            }
-        }).unwrap();
+            }).unwrap();
 
-    (handle, receiver)
+        handles.push(handle);
+    }
+
+    (handles, receiver)
 }
 
 fn sounding_parser(
