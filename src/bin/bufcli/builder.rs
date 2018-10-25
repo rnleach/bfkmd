@@ -8,7 +8,12 @@ use sounding_analysis::{haines_high, haines_low, haines_mid, hot_dry_windy, Anal
 use sounding_bufkit::BufkitData;
 use std::thread::{self, JoinHandle};
 
-pub fn build_climo(arch: &Archive, site: &str, model: Model, from_scratch: bool) -> Result<(), Error> {
+pub fn build_climo(
+    arch: &Archive,
+    site: &str,
+    model: Model,
+    from_scratch: bool,
+) -> Result<(), Error> {
     let root = arch.get_root();
 
     // Channel to transmit errors back to main (this) thread.
@@ -20,8 +25,14 @@ pub fn build_climo(arch: &Archive, site: &str, model: Model, from_scratch: bool)
 
     // Set up a generator that compares the dates in the archive to those in the climo database and
     // filters out dates already in the climate period of record.
-    let (date_generator_handle, date_receiver, num_dates) =
-        date_generator(arch, site, model, from_scratch, to_climo_db.clone(), error_sender.clone())?;
+    let (date_generator_handle, date_receiver, num_dates) = date_generator(
+        arch,
+        site,
+        model,
+        from_scratch,
+        to_climo_db.clone(),
+        error_sender.clone(),
+    )?;
 
     // Set up a thread to load the files as strings
     let (file_loader_handle, string_receiver) =
