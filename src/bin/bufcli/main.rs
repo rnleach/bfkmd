@@ -24,6 +24,7 @@ mod builder;
 mod climo_db;
 
 use self::builder::build_climo;
+use self::climo_db::ClimoDB;
 use bfkmd::bail;
 use bufkit_data::{Archive, Model};
 use clap::{App, Arg};
@@ -208,5 +209,10 @@ fn show(args: &CmdLineArgs) -> Result<(), Error> {
 }
 
 fn reset(args: &CmdLineArgs) -> Result<(), Error> {
-    unimplemented!()
+    let path = ClimoDB::path_to_climo_db(&args.root);
+    if path.as_path().is_file() {}
+
+    ::std::fs::remove_file(&path)?;
+
+    Ok(())
 }

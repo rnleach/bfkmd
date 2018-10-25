@@ -6,7 +6,7 @@ use failure::Error;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, Statement, NO_PARAMS};
 use std::fs::create_dir;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{thread, thread::JoinHandle};
 use strum::AsStaticRef;
 
@@ -15,16 +15,20 @@ pub struct ClimoDB {
 }
 
 impl ClimoDB {
-    pub fn open_or_create(arch_root: &Path) -> Result<Self, Error> {
-        const CLIMO_DIR: &str = "climo";
-        const CLIMO_DB: &str = "climo.db";
+    pub const CLIMO_DIR: &'static str = "climo";
+    pub const CLIMO_DB: &'static str = "climo.db";
 
-        let climo_path = arch_root.join(CLIMO_DIR);
+    pub fn path_to_climo_db(arch_root: &Path) -> PathBuf {
+        arch_root.join(Self::CLIMO_DIR).join(Self::CLIMO_DB)
+    }
+
+    pub fn open_or_create(arch_root: &Path) -> Result<Self, Error> {
+        let climo_path = arch_root.join(Self::CLIMO_DIR);
         if !climo_path.is_dir() {
             create_dir(&climo_path)?;
         }
 
-        let db_file = climo_path.join(CLIMO_DB);
+        let db_file = climo_path.join(Self::CLIMO_DB);
 
         // Create and set up the database
         let conn = Connection::open_with_flags(
