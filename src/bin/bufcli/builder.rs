@@ -93,9 +93,9 @@ pub fn build_climo(
     // Clean up
     climo_handle.join().unwrap();
     date_generator_handle.join().unwrap();
-    for handle in file_loader_handles{
-        handle.join().unwrap();
-    }
+    file_loader_handles
+        .into_iter()
+        .for_each(|handle| handle.join().unwrap());
     parser_handle.join().unwrap();
     fire_stats_handle.join().unwrap();
     locations_handle.join().unwrap();
@@ -108,7 +108,7 @@ pub fn build_climo(
         println!("     {} - {}", init_time, err);
     }
 
-    println!("Completed {} for {} successfully.", model, site);
+    println!("Gathered {} data for {} successfully.", model, site);
 
     Ok(())
 }
@@ -167,11 +167,13 @@ fn file_loader(
     model: Model,
     init_times: Receiver<(usize, NaiveDateTime)>,
     error_stream: Sender<ErrorMessage>,
-) -> (Vec<JoinHandle<()>>, Receiver<(usize, NaiveDateTime, String)>) {
-    
+) -> (
+    Vec<JoinHandle<()>>,
+    Receiver<(usize, NaiveDateTime, String)>,
+) {
     let (sender, receiver) = crossbeam_channel::bounded::<(usize, NaiveDateTime, String)>(256);
-    
-    const NUM_LOADERS: usize = 4;
+
+    const NUM_LOADERS: usize = 3;
     let mut handles = vec![];
 
     for i in 0..NUM_LOADERS {
@@ -196,7 +198,8 @@ fn file_loader(
                     match arch.get_file(&site, model, &init_time) {
                         Ok(string_data) => local_sender.send((i, init_time, string_data)),
                         Err(err) => {
-                            local_error_stream.send(ErrorMessage::DataError(init_time, Error::from(err)));
+                            local_error_stream
+                                .send(ErrorMessage::DataError(init_time, Error::from(err)));
                         }
                     }
                 }
