@@ -8,6 +8,8 @@ use sounding_analysis::{haines_high, haines_low, haines_mid, hot_dry_windy, Anal
 use sounding_bufkit::BufkitData;
 use std::thread::{self, JoinHandle};
 
+const CAPACITY: usize = 16;
+
 pub fn build_climo(
     arch: &Archive,
     site: &str,
@@ -17,7 +19,7 @@ pub fn build_climo(
     let root = arch.get_root();
 
     // Channel to transmit errors back to main (this) thread.
-    let (error_sender, error_receiver) = crossbeam_channel::bounded::<ErrorMessage>(256);
+    let (error_sender, error_receiver) = crossbeam_channel::bounded::<ErrorMessage>(CAPACITY);
 
     // Start a thread to manage the climo database
     let (climo_handle, to_climo_db) =
@@ -126,7 +128,7 @@ fn date_generator(
     to_climo_db: Sender<DBRequest>,
     error_stream: Sender<ErrorMessage>,
 ) -> Result<(JoinHandle<()>, Receiver<(usize, NaiveDateTime)>, usize), Error> {
-    let (sender, receiver) = crossbeam_channel::bounded::<(usize, NaiveDateTime)>(256);
+    let (sender, receiver) = crossbeam_channel::bounded::<(usize, NaiveDateTime)>(CAPACITY);
 
     let init_times = arch.get_init_times(site, model)?;
     let total = init_times.len();
@@ -171,7 +173,7 @@ fn file_loader(
     Vec<JoinHandle<()>>,
     Receiver<(usize, NaiveDateTime, String)>,
 ) {
-    let (sender, receiver) = crossbeam_channel::bounded::<(usize, NaiveDateTime, String)>(256);
+    let (sender, receiver) = crossbeam_channel::bounded::<(usize, NaiveDateTime, String)>(CAPACITY);
 
     const NUM_LOADERS: usize = 3;
     let mut handles = vec![];
@@ -216,7 +218,8 @@ fn sounding_parser(
     model: Model,
     error_stream: Sender<ErrorMessage>,
 ) -> (JoinHandle<()>, Receiver<(usize, NaiveDateTime, Analysis)>) {
-    let (sender, receiver) = crossbeam_channel::bounded::<(usize, NaiveDateTime, Analysis)>(256);
+    let (sender, receiver) =
+        crossbeam_channel::bounded::<(usize, NaiveDateTime, Analysis)>(CAPACITY);
 
     let handle = thread::Builder::new()
         .name("sounding_parser".to_owned())
@@ -256,7 +259,7 @@ fn fire_stats_calculator(
     error_stream: Sender<ErrorMessage>,
 ) -> (JoinHandle<()>, Receiver<(usize, NaiveDateTime, Analysis)>) {
     let (anal_sender, anal_receiver) =
-        crossbeam_channel::bounded::<(usize, NaiveDateTime, Analysis)>(256);
+        crossbeam_channel::bounded::<(usize, NaiveDateTime, Analysis)>(CAPACITY);
 
     let handle = thread::Builder::new()
         .name("fire_stats_calculator".to_owned())
@@ -299,7 +302,8 @@ fn location_updater(
     to_climo_db: Sender<DBRequest>,
     _error_stream: Sender<ErrorMessage>,
 ) -> (JoinHandle<()>, Receiver<(usize, NaiveDateTime, Analysis)>) {
-    let (sender, receiver) = crossbeam_channel::bounded::<(usize, NaiveDateTime, Analysis)>(256);
+    let (sender, receiver) =
+        crossbeam_channel::bounded::<(usize, NaiveDateTime, Analysis)>(CAPACITY);
 
     let handle = thread::Builder::new()
         .name("location_updater".to_owned())
@@ -332,7 +336,7 @@ fn location_updater(
 
 fn progress_indicator(total: usize, site: &str, model: Model) -> (JoinHandle<()>, Sender<usize>) {
     let site = site.to_owned();
-    let (sender, receiver) = crossbeam_channel::bounded::<usize>(256);
+    let (sender, receiver) = crossbeam_channel::bounded::<usize>(CAPACITY);
 
     let handle = thread::Builder::new()
         .name("progress_indicator".to_owned())

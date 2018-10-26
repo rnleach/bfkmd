@@ -1,6 +1,6 @@
 use super::builder::ErrorMessage;
 use bufkit_data::Model;
-use chrono::{Datelike, NaiveDateTime, Timelike, Utc};
+use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use crossbeam_channel::{self, Receiver, Sender};
 use failure::Error;
 use rusqlite::types::ToSql;
@@ -86,6 +86,8 @@ pub struct ClimoDBInterface<'a, 'b: 'a> {
     conn: &'a Connection,
     add_location_query: Statement<'b>,
     add_fire_data_query: Statement<'b>,
+    site: String,
+    model: String,
 }
 
 impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
@@ -118,6 +120,8 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
             conn,
             add_location_query,
             add_fire_data_query,
+            site,
+            model,
         })
     }
 
@@ -206,6 +210,225 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
 
         Ok(())
     }
+
+    pub fn calc_fire_summary(&self) -> Result<Vec<FireSummaryRow>, Error> {
+        let mut to_return = Vec::with_capacity(366);
+
+        // Get the daily max HDW
+        let mut hdw_stmt = self.conn.prepare(&format!(
+            "
+                    SELECT month,day,MAX(hdw) 
+                    FROM fire 
+                    WHERE site ='{}' and model = '{}' 
+                    GROUP BY year,month,day
+                    ORDER BY hdw ASC
+                ",
+            self.site, self.model
+        ))?;
+        let daily_max_hdw: Result<Vec<(i32, i32, i32)>, _> = hdw_stmt
+            .query_map(NO_PARAMS, |row| (row.get(0), row.get(1), row.get(2)))?
+            .collect();
+        let daily_max_hdw = daily_max_hdw?;
+
+        if daily_max_hdw.is_empty() {
+            return Err(format_err!("Not enough data"));
+        }
+
+        let mut haines_stmt = self.conn.prepare(&format!(
+            "
+                    SELECT month,day,haines_high,haines_mid,haines_low 
+                    FROM fire 
+                    WHERE site ='{}' AND model = '{}' AND hour = 0
+                ",
+            self.site, self.model
+        ))?;
+        let evening_haines: Result<Vec<(i32, i32, i32, i32, i32)>, _> = haines_stmt
+            .query_map(NO_PARAMS, |row| {
+                (row.get(0), row.get(1), row.get(2), row.get(3), row.get(4))
+            })?.collect();
+        let evening_haines = evening_haines?;
+
+        static DAYS_PER_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+        for month in 1u32..=12 {
+            for day in 1..=DAYS_PER_MONTH[month as usize - 1] {
+                // Use 2019 cause not a leap year
+                let center_date = NaiveDate::from_ymd(2019, month, day);
+                let first_date = center_date - Duration::days(7);
+                let last_date = center_date + Duration::days(7);
+
+                let first_month = first_date.month() as i32;
+                let first_day = first_date.day() as i32;
+                let last_month = last_date.month() as i32;
+                let last_day = last_date.day() as i32;
+
+                let hdw_vals: Vec<i32> = daily_max_hdw
+                    .iter()
+                    .filter_map(|&(month, day, hdw)| {
+                        if (first_month == last_month
+                            && month == first_month
+                            && day >= first_day
+                            && day <= last_day)
+                            || (first_month != last_month
+                                && month == first_month
+                                && day >= first_day)
+                            || (first_month != last_month && month == last_month && day <= last_day)
+                        {
+                            Some(hdw)
+                        } else {
+                            None
+                        }
+                    }).collect();
+
+                if hdw_vals.is_empty() {
+                    return Err(format_err!("Not enough data"));
+                }
+
+                let pct_idx = |pctl: usize, len: usize| -> usize {
+                    ((len - 1) as f32 / 100.0 * pctl as f32).round() as usize
+                };
+
+                let num_samples = hdw_vals.len();
+
+                let hdw_pcts: [i32; 11] = [
+                    hdw_vals[0],
+                    hdw_vals[pct_idx(10, hdw_vals.len())],
+                    hdw_vals[pct_idx(20, hdw_vals.len())],
+                    hdw_vals[pct_idx(30, hdw_vals.len())],
+                    hdw_vals[pct_idx(40, hdw_vals.len())],
+                    hdw_vals[pct_idx(50, hdw_vals.len())],
+                    hdw_vals[pct_idx(60, hdw_vals.len())],
+                    hdw_vals[pct_idx(70, hdw_vals.len())],
+                    hdw_vals[pct_idx(80, hdw_vals.len())],
+                    hdw_vals[pct_idx(90, hdw_vals.len())],
+                    hdw_vals[hdw_vals.len() - 1],
+                ];
+
+                let mut haines_total = 0;
+                let mut haines_high = (0, 0, 0, 0, 0, 0);
+                let mut haines_mid = (0, 0, 0, 0, 0, 0);
+                let mut haines_low = (0, 0, 0, 0, 0, 0);
+
+                evening_haines
+                    .iter()
+                    .filter_map(|&(month, day, high, mid, low)| {
+                        if (first_month == last_month
+                            && month == first_month
+                            && day >= first_day
+                            && day <= last_day)
+                            || (first_month != last_month
+                                && month == first_month
+                                && day >= first_day)
+                            || (first_month != last_month && month == last_month && day <= last_day)
+                        {
+                            Some((high, mid, low))
+                        } else {
+                            None
+                        }
+                    }).for_each(|(high, mid, low)| {
+                        haines_total += 1;
+                        match high {
+                            0 => haines_high.0 += 1,
+                            2 => haines_high.1 += 1,
+                            3 => haines_high.2 += 1,
+                            4 => haines_high.3 += 1,
+                            5 => haines_high.4 += 1,
+                            6 => haines_high.5 += 1,
+                            _ => panic!("Invalid Haines value"),
+                        }
+                        match mid {
+                            0 => haines_mid.0 += 1,
+                            2 => haines_mid.1 += 1,
+                            3 => haines_mid.2 += 1,
+                            4 => haines_mid.3 += 1,
+                            5 => haines_mid.4 += 1,
+                            6 => haines_mid.5 += 1,
+                            _ => panic!("Invalid Haines value"),
+                        }
+                        match low {
+                            0 => haines_low.0 += 1,
+                            2 => haines_low.1 += 1,
+                            3 => haines_low.2 += 1,
+                            4 => haines_low.3 += 1,
+                            5 => haines_low.4 += 1,
+                            6 => haines_low.5 += 1,
+                            _ => panic!("Invalid Haines value"),
+                        }
+                    });
+                let haines_total = haines_total as f64;
+                let haines_high_pcts = [
+                    haines_high.0 as f64 / haines_total,
+                    haines_high.1 as f64 / haines_total,
+                    haines_high.2 as f64 / haines_total,
+                    haines_high.3 as f64 / haines_total,
+                    haines_high.4 as f64 / haines_total,
+                    haines_high.5 as f64 / haines_total,
+                ];
+                let haines_mid_pcts = [
+                    haines_mid.0 as f64 / haines_total,
+                    haines_mid.1 as f64 / haines_total,
+                    haines_mid.2 as f64 / haines_total,
+                    haines_mid.3 as f64 / haines_total,
+                    haines_mid.4 as f64 / haines_total,
+                    haines_mid.5 as f64 / haines_total,
+                ];
+                let haines_low_pcts = [
+                    haines_low.0 as f64 / haines_total,
+                    haines_low.1 as f64 / haines_total,
+                    haines_low.2 as f64 / haines_total,
+                    haines_low.3 as f64 / haines_total,
+                    haines_low.4 as f64 / haines_total,
+                    haines_low.5 as f64 / haines_total,
+                ];
+
+                to_return.push(FireSummaryRow {
+                    month,
+                    day,
+                    hdw_pcts,
+                    haines_low_pcts,
+                    haines_mid_pcts,
+                    haines_high_pcts,
+                    num_samples,
+                });
+            }
+        }
+
+        Ok(to_return)
+    }
+}
+
+pub struct FireSummaryRow {
+    // All values should use a 15 day sliding window centered on the month/day
+    month: u32,
+    day: u32,
+    hdw_pcts: [i32; 11], // [min, 10, 20, 30, ..., 80, 60, max] min->deciles->max
+    haines_low_pcts: [f64; 6], // [0,2,3,4,5,6] relative frequency.
+    haines_mid_pcts: [f64; 6], //            "
+    haines_high_pcts: [f64; 6], //           "
+    num_samples: usize,
+}
+
+impl FireSummaryRow {
+    pub fn as_strings(&self) -> Vec<String> {
+        let mut to_return = vec![];
+        to_return.push(self.month.to_string());
+        to_return.push(self.day.to_string());
+        for percentile in &self.hdw_pcts {
+            to_return.push(percentile.to_string());
+        }
+        for percent in &self.haines_low_pcts {
+            to_return.push(percent.to_string());
+        }
+        for percent in &self.haines_mid_pcts {
+            to_return.push(percent.to_string());
+        }
+        for percent in &self.haines_high_pcts {
+            to_return.push(percent.to_string());
+        }
+        to_return.push(self.num_samples.to_string());
+
+        to_return
+    }
 }
 
 #[derive(Debug)]
@@ -228,8 +451,9 @@ pub fn start_climo_db_thread(
 ) -> (JoinHandle<()>, Sender<DBRequest>) {
     use self::DBRequest::*;
     use self::DBResponse::*;
+    const CAPACITY: usize = 64;
 
-    let (sender, recv): (Sender<DBRequest>, Receiver<_>) = crossbeam_channel::bounded(256);
+    let (sender, recv): (Sender<DBRequest>, Receiver<_>) = crossbeam_channel::bounded(CAPACITY);
     let root = arch_root.to_owned();
     let site = site.to_string();
 
