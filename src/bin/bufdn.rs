@@ -25,7 +25,7 @@ use crossbeam_channel as channel;
 use dirs::home_dir;
 use failure::{Error, Fail};
 use reqwest::{Client, StatusCode};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -258,18 +258,16 @@ fn run() -> Result<(), Error> {
         // Filter out data already in the databse
         .filter(|(site, model, init_time)| !arch.exists(site, *model, init_time).unwrap_or(false))
         // Add the url
-        .filter_map(|(site, model, init_time)| {
-            match build_url(&site, model, &init_time){
+        .filter_map(
+            |(site, model, init_time)| match build_url(&site, model, &init_time) {
                 Ok(url) => Some((site, model, init_time, url)),
                 Err(_) => None,
-            }
-        })
+            },
+        )
         // Filter out known missing values
-        .filter(|(_, _, _, url)|{
-            !missing_urls.is_missing(url).unwrap_or(false)
-        })
+        .filter(|(_, _, _, url)| !missing_urls.is_missing(url).unwrap_or(false))
         // Pass it off to another thread for downloading.
-        .for_each(move |list_val: (String, Model, NaiveDateTime, String)|{
+        .for_each(move |list_val: (String, Model, NaiveDateTime, String)| {
             main_tx.send(list_val);
         });
 
@@ -411,13 +409,13 @@ impl MissingUrlDb {
             "CREATE TABLE IF NOT EXISTS missing (
                 url TEXT PRIMARY KEY
             )",
-            &[],
+            NO_PARAMS,
         )?;
 
         Ok(MissingUrlDb { db_conn: db404 })
     }
 
-    fn is_missing(&self, url: &String) -> Result<bool, BufkitDataErr> {
+    fn is_missing(&self, url: &str) -> Result<bool, BufkitDataErr> {
         let num_missing: i32 = self.db_conn.query_row(
             "SELECT COUNT(*) FROM missing WHERE url = ?1",
             &[url],
@@ -427,7 +425,7 @@ impl MissingUrlDb {
         Ok(num_missing > 0)
     }
 
-    fn add_url(&self, url: &String) -> Result<(), BufkitDataErr> {
+    fn add_url(&self, url: &str) -> Result<(), BufkitDataErr> {
         self.db_conn
             .execute("INSERT INTO missing (url) VALUES (?1)", &[url])?;
 
