@@ -12,7 +12,7 @@ pub fn export_climo(
     model: Model,
 ) -> Result<(), Error> {
     let climo_db = ClimoDB::open_or_create(root)?;
-    let climo_db = ClimoDBInterface::initialize(&climo_db, site, model)?;
+    let climo_db = ClimoDBInterface::initialize(&climo_db, site, model, root)?;
 
     let fire_climo = climo_db.calc_fire_summary()?;
 

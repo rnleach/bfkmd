@@ -1,6 +1,6 @@
 use super::builder::ErrorMessage;
-use bufkit_data::Model;
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
+use bufkit_data::{Archive, Model, Site};
+use chrono::{Datelike, Duration, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc};
 use crossbeam_channel::{self, Receiver, Sender};
 use failure::Error;
 use rusqlite::types::ToSql;
@@ -64,15 +64,15 @@ impl ClimoDB {
                 site          TEXT NOT NULL,
                 model         TEXT NOT NULL,
                 valid_time    TEXT NOT NULL,
-                year          INT  NOT NULL,
-                month         INT  NOT NULL,
-                day           INT  NOT NULL,
-                hour          INT  NOT NULL,
+                year_lcl      INT  NOT NULL,
+                month_lcl     INT  NOT NULL,
+                day_lcl       INT  NOT NULL,
+                hour_lcl      INT  NOT NULL,
                 haines_high   INT,
                 haines_mid    INT,
                 haines_low    INT,
                 hdw           INT,
-                PRIMARY KEY (site, valid_time, model, year, month, day, hour)
+                PRIMARY KEY (site, valid_time, model, year_lcl, month_lcl, day_lcl, hour_lcl)
             )",
             NO_PARAMS,
         )?;
@@ -88,13 +88,22 @@ pub struct ClimoDBInterface<'a, 'b: 'a> {
     add_fire_data_query: Statement<'b>,
     site: String,
     model: String,
+    time_zone: FixedOffset,
 }
 
 impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
-    pub fn initialize(climo_db: &'b ClimoDB, site: &str, model: Model) -> Result<Self, Error> {
+    pub fn initialize(
+        climo_db: &'b ClimoDB,
+        site: &str,
+        model: Model,
+        root: &Path,
+    ) -> Result<Self, Error> {
         let conn = &climo_db.conn;
         let site = site.to_uppercase();
         let model = model.as_static().to_string();
+        let arch = Archive::connect(root)?;
+        let Site { time_zone, .. } = arch.get_site_info(&site)?;
+        let time_zone = time_zone.unwrap_or(FixedOffset::west(0));
 
         let add_location_query = conn.prepare(&format!(
             "
@@ -105,16 +114,15 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
             site, model,
         ))?;
 
-        let add_fire_data_query = conn.prepare(
-            &format!(
-                "
+        let add_fire_data_query = conn.prepare(&format!(
+            "
                     INSERT OR REPLACE INTO
-                    fire (site, model, valid_time, year, month, day, hour, haines_high, haines_mid, haines_low, hdw)
+                    fire (site, model, valid_time, year_lcl, month_lcl, day_lcl, hour_lcl, 
+                        haines_high, haines_mid, haines_low, hdw)
                     VALUES ('{}', '{}', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                 ",
-                site, model,
-            ),
-        )?;
+            site, model,
+        ))?;
 
         Ok(ClimoDBInterface {
             conn,
@@ -122,6 +130,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
             add_fire_data_query,
             site,
             model,
+            time_zone,
         })
     }
 
@@ -191,17 +200,18 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         hns_high_mid_low: (i32, i32, i32),
         hdw: i32,
     ) -> Result<(), Error> {
-        let year = valid_time.year();
-        let month = valid_time.month();
-        let day = valid_time.day();
-        let hour = valid_time.hour();
+        let lcl_time = self.time_zone.from_utc_datetime(&valid_time);
+        let year_lcl = lcl_time.year();
+        let month_lcl = lcl_time.month();
+        let day_lcl = lcl_time.day();
+        let hour_lcl = lcl_time.hour();
 
         self.add_fire_data_query.execute(&[
             &valid_time as &ToSql,
-            &year as &ToSql,
-            &month as &ToSql,
-            &day as &ToSql,
-            &hour as &ToSql,
+            &year_lcl as &ToSql,
+            &month_lcl as &ToSql,
+            &day_lcl as &ToSql,
+            &hour_lcl as &ToSql,
             &hns_high_mid_low.0 as &ToSql,
             &hns_high_mid_low.1 as &ToSql,
             &hns_high_mid_low.2 as &ToSql,
@@ -217,10 +227,10 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         // Get the daily max HDW
         let mut hdw_stmt = self.conn.prepare(&format!(
             "
-                    SELECT month,day,MAX(hdw) 
+                    SELECT month_lcl,day_lcl,MAX(hdw) 
                     FROM fire 
                     WHERE site ='{}' and model = '{}' 
-                    GROUP BY year,month,day
+                    GROUP BY year_lcl,month_lcl,day_lcl
                     ORDER BY hdw ASC
                 ",
             self.site, self.model
@@ -236,9 +246,9 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
 
         let mut haines_stmt = self.conn.prepare(&format!(
             "
-                    SELECT month,day,haines_high,haines_mid,haines_low 
+                    SELECT month_lcl,day_lcl,haines_high,haines_mid,haines_low 
                     FROM fire 
-                    WHERE site ='{}' AND model = '{}' AND hour = 0
+                    WHERE site ='{}' AND model = '{}' AND hour_lcl = 16
                 ",
             self.site, self.model
         ))?;
@@ -468,7 +478,7 @@ pub fn start_climo_db_thread(
                 }
             };
 
-            let mut climo_db = match ClimoDBInterface::initialize(&climo_db, &site, model) {
+            let mut climo_db = match ClimoDBInterface::initialize(&climo_db, &site, model, &root) {
                 Ok(iface) => iface,
                 Err(err) => {
                     error_stream.send(ErrorMessage::Critical(err));

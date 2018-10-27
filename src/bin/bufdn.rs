@@ -258,18 +258,16 @@ fn run() -> Result<(), Error> {
         // Filter out data already in the databse
         .filter(|(site, model, init_time)| !arch.exists(site, *model, init_time).unwrap_or(false))
         // Add the url
-        .filter_map(|(site, model, init_time)| {
-            match build_url(&site, model, &init_time){
+        .filter_map(
+            |(site, model, init_time)| match build_url(&site, model, &init_time) {
                 Ok(url) => Some((site, model, init_time, url)),
                 Err(_) => None,
-            }
-        })
+            },
+        )
         // Filter out known missing values
-        .filter(|(_, _, _, url)|{
-            !missing_urls.is_missing(url).unwrap_or(false)
-        })
+        .filter(|(_, _, _, url)| !missing_urls.is_missing(url).unwrap_or(false))
         // Pass it off to another thread for downloading.
-        .for_each(move |list_val: (String, Model, NaiveDateTime, String)|{
+        .for_each(move |list_val: (String, Model, NaiveDateTime, String)| {
             main_tx.send(list_val);
         });
 

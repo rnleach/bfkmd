@@ -12,7 +12,7 @@ extern crate strum;
 
 use bfkmd::{bail, parse_date_string, TablePrinter};
 use bufkit_data::{Archive, BufkitDataErr, Model, Site, StateProv};
-use chrono::{NaiveDate, Utc};
+use chrono::{FixedOffset, NaiveDate, Utc};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use dirs::home_dir;
 use failure::{err_msg, Error, Fail};
@@ -135,6 +135,12 @@ fn run() -> Result<(), Error> {
                                 .long("auto-download")
                                 .help("Set whether or not to automatically download this site.")
                                 .possible_values(&["Yes", "yes", "no", "No"])
+                                .takes_value(true),
+                        ).arg(
+                            Arg::with_name("utc-offset")
+                                .long("utc-offset")
+                                .help("Set the UTC offset in hours. e.g. '--utc-offset -7' for MST.")
+                                .require_equals(true)
                                 .takes_value(true),
                         ),
                 ).subcommand(
@@ -396,6 +402,7 @@ fn sites_list(
             .with_column::<String, String>("ID".to_owned(), &[])
             .with_column::<String, String>("STATE".to_owned(), &[])
             .with_column::<String, String>("NAME".to_owned(), &[])
+            .with_column::<String, String>("UTC Offset".to_owned(), &[])
             .with_column::<String, String>("Auto Download".to_owned(), &[])
             .with_column::<String, String>("MODELS".to_owned(), &[])
             .with_column::<String, String>("NOTES".to_owned(), &[])
@@ -407,6 +414,10 @@ fn sites_list(
         let id = &site.id;
         let state = site.state.map(|st| st.as_static()).unwrap_or(&"-");
         let name = site.name.as_ref().unwrap_or(&blank);
+        let offset = site
+            .time_zone
+            .map(|val| val.to_string())
+            .unwrap_or(blank.clone());
         let notes = site.notes.as_ref().unwrap_or(&blank);
         let auto_dl = if site.auto_download { "Yes" } else { "No" };
         let models = arch
@@ -419,6 +430,7 @@ fn sites_list(
             id.to_string(),
             state.to_string(),
             name.to_string(),
+            offset,
             auto_dl.to_string(),
             models.to_string(),
             notes.to_string(),
@@ -461,6 +473,17 @@ fn sites_modify(
 
     if let Some(new_notes) = sub_sub_args.value_of("notes") {
         site.notes = Some(new_notes.to_owned())
+    }
+
+    if let Some(new_offset) = sub_sub_args.value_of("utc-offset") {
+        if let Ok(new_offset) = new_offset.parse::<i32>() {
+            let seconds = new_offset * 3600;
+            if seconds < 0 {
+                site.time_zone = Some(FixedOffset::west(seconds.abs()));
+            } else {
+                site.time_zone = Some(FixedOffset::east(seconds));
+            }
+        }
     }
 
     arch.set_site_info(&site)?;
