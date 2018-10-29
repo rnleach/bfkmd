@@ -6,7 +6,6 @@ extern crate chrono;
 extern crate clap;
 extern crate dirs;
 extern crate failure;
-extern crate pbr;
 extern crate sounding_bufkit;
 extern crate strum;
 
