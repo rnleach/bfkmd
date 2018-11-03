@@ -58,17 +58,19 @@ impl ClimoDB {
         //
         conn.execute(
             "CREATE TABLE IF NOT EXISTS fire (
-                site          TEXT NOT NULL,
-                model         TEXT NOT NULL,
-                valid_time    TEXT NOT NULL,
-                year_lcl      INT  NOT NULL,
-                month_lcl     INT  NOT NULL,
-                day_lcl       INT  NOT NULL,
-                hour_lcl      INT  NOT NULL,
-                haines_high   INT,
-                haines_mid    INT,
-                haines_low    INT,
-                hdw           INT,
+                site         TEXT NOT NULL,
+                model        TEXT NOT NULL,
+                valid_time   TEXT NOT NULL,
+                year_lcl     INT  NOT NULL,
+                month_lcl    INT  NOT NULL,
+                day_lcl      INT  NOT NULL,
+                hour_lcl     INT  NOT NULL,
+                haines_high  INT,
+                haines_mid   INT,
+                haines_low   INT,
+                hdw          INT,
+                conv_t_def_c REAL,
+                cape_ratio   REAL,
                 PRIMARY KEY (site, valid_time, model, year_lcl, month_lcl, day_lcl, hour_lcl)
             )",
             NO_PARAMS,
@@ -101,8 +103,8 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
             "
                 INSERT OR REPLACE INTO
                 fire (site, model, valid_time, year_lcl, month_lcl, day_lcl, hour_lcl, 
-                    haines_high, haines_mid, haines_low, hdw)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                    haines_high, haines_mid, haines_low, hdw, conv_t_def_c, cape_ratio)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             ",
         )?;
 
@@ -169,6 +171,8 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         valid_time: NaiveDateTime,
         hns_high_mid_low: (i32, i32, i32),
         hdw: i32,
+        conv_t_def_c: Option<f64>,
+        cape_ratio: Option<f64>,
     ) -> Result<(), Error> {
         let lcl_time = site
             .time_zone
@@ -178,8 +182,6 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         let month_lcl = lcl_time.month();
         let day_lcl = lcl_time.day();
         let hour_lcl = lcl_time.hour();
-
-        print!("adding fire...");
 
         self.add_fire_data_query.execute(&[
             &site.id as &ToSql,
@@ -193,8 +195,9 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
             &hns_high_mid_low.1 as &ToSql,
             &hns_high_mid_low.2 as &ToSql,
             &hdw as &ToSql,
+            &conv_t_def_c as &ToSql,
+            &cape_ratio as &ToSql,
         ])?;
-        println!("added {} {} {}", site.id, model, valid_time);
 
         Ok(())
     }
@@ -227,6 +230,49 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
             return Err(format_err!("Not enough data"));
         }
 
+        // Get the minimum convective deficit for the day in C
+        let mut conv_t_def_stmt  = self.conn.prepare(
+            "
+                SELECT month_lcl,day_lcl,MIN(conv_t_def_c) 
+                FROM fire 
+                WHERE site = $1 and model = $2 
+                GROUP BY year_lcl,month_lcl,day_lcl
+                ORDER BY conv_t_def_c ASC
+            ",
+        )?;
+
+        let daily_min_conv_t_def: Result<Vec<(i32, i32, Option<f64>)>, _> = conv_t_def_stmt
+            .query_map(&[&site.id as &ToSql, &model.as_static()], |row| {
+                (row.get(0), row.get(1), row.get(2))
+            })?.collect();
+        let daily_min_conv_t_def = daily_min_conv_t_def?;
+
+        if daily_min_conv_t_def.is_empty() {
+            return Err(format_err!("Not enough data"));
+        }
+
+        // Get the maximum daily cape ratio
+        let mut cape_ratio_stmt  = self.conn.prepare(
+            "
+                SELECT month_lcl,day_lcl,MAX(cape_ratio) 
+                FROM fire 
+                WHERE site = $1 and model = $2 
+                GROUP BY year_lcl,month_lcl,day_lcl
+                ORDER BY cape_ratio ASC
+            ",
+        )?;
+
+        let daily_max_cape_ratio: Result<Vec<(i32, i32, Option<f64>)>, _> = cape_ratio_stmt
+            .query_map(&[&site.id as &ToSql, &model.as_static()], |row| {
+                (row.get(0), row.get(1), row.get(2))
+            })?.collect();
+        let daily_max_cape_ratio = daily_max_cape_ratio?;
+
+        if daily_max_cape_ratio.is_empty() {
+            return Err(format_err!("Not enough data"));
+        }
+
+        // Get the daily afternoon Haines index
         let mut haines_stmt = self.conn.prepare(
             "
                 SELECT month_lcl,day_lcl,haines_high,haines_mid,haines_low 
@@ -254,6 +300,9 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
                 let last_month = last_date.month() as i32;
                 let last_day = last_date.day() as i32;
 
+                //
+                // Process HDW
+                //
                 let hdw_vals: Vec<i32> = daily_max_hdw
                     .iter()
                     .filter_map(|&(month, day, hdw)| {
@@ -296,6 +345,87 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
                     hdw_vals[hdw_vals.len() - 1],
                 ];
 
+                //
+                // Process ConvTDef
+                //
+                let conv_t_vals: Vec<Option<f64>> = daily_min_conv_t_def
+                    .iter()
+                    .filter_map(|&(month, day, convt_def)| {
+                        if (first_month == last_month
+                            && month == first_month
+                            && day >= first_day
+                            && day <= last_day)
+                            || (first_month != last_month
+                                && month == first_month
+                                && day >= first_day)
+                            || (first_month != last_month && month == last_month && day <= last_day)
+                        {
+                            Some(convt_def)
+                        } else {
+                            None
+                        }
+                    }).collect();
+
+                if conv_t_vals.is_empty() {
+                    return Err(format_err!("Not enough data"));
+                }
+
+                let conv_t_pcts: [Option<f64>; 11] = [
+                    conv_t_vals[0],
+                    conv_t_vals[pct_idx(10, conv_t_vals.len())],
+                    conv_t_vals[pct_idx(20, conv_t_vals.len())],
+                    conv_t_vals[pct_idx(30, conv_t_vals.len())],
+                    conv_t_vals[pct_idx(40, conv_t_vals.len())],
+                    conv_t_vals[pct_idx(50, conv_t_vals.len())],
+                    conv_t_vals[pct_idx(60, conv_t_vals.len())],
+                    conv_t_vals[pct_idx(70, conv_t_vals.len())],
+                    conv_t_vals[pct_idx(80, conv_t_vals.len())],
+                    conv_t_vals[pct_idx(90, conv_t_vals.len())],
+                    conv_t_vals[conv_t_vals.len() - 1],
+                ];
+
+                //
+                // Process cape ratio
+                //
+                let cape_ratio_vals: Vec<Option<f64>> = daily_max_cape_ratio
+                    .iter()
+                    .filter_map(|&(month, day, cape_ratio)| {
+                        if (first_month == last_month
+                            && month == first_month
+                            && day >= first_day
+                            && day <= last_day)
+                            || (first_month != last_month
+                                && month == first_month
+                                && day >= first_day)
+                            || (first_month != last_month && month == last_month && day <= last_day)
+                        {
+                            Some(cape_ratio)
+                        } else {
+                            None
+                        }
+                    }).collect();
+
+                if cape_ratio_vals.is_empty() {
+                    return Err(format_err!("Not enough data"));
+                }
+
+                let cape_ratio_pcts: [Option<f64>; 11] = [
+                    cape_ratio_vals[0],
+                    cape_ratio_vals[pct_idx(10, cape_ratio_vals.len())],
+                    cape_ratio_vals[pct_idx(20, cape_ratio_vals.len())],
+                    cape_ratio_vals[pct_idx(30, cape_ratio_vals.len())],
+                    cape_ratio_vals[pct_idx(40, cape_ratio_vals.len())],
+                    cape_ratio_vals[pct_idx(50, cape_ratio_vals.len())],
+                    cape_ratio_vals[pct_idx(60, cape_ratio_vals.len())],
+                    cape_ratio_vals[pct_idx(70, cape_ratio_vals.len())],
+                    cape_ratio_vals[pct_idx(80, cape_ratio_vals.len())],
+                    cape_ratio_vals[pct_idx(90, cape_ratio_vals.len())],
+                    cape_ratio_vals[cape_ratio_vals.len() - 1],
+                ];
+
+                //
+                // Process Haines
+                //
                 let mut haines_total = 0;
                 let mut haines_high = (0, 0, 0, 0, 0, 0);
                 let mut haines_mid = (0, 0, 0, 0, 0, 0);
@@ -377,6 +507,8 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
                     month,
                     day,
                     hdw_pcts,
+                    conv_t_pcts,
+                    cape_ratio_pcts,
                     haines_low_pcts,
                     haines_mid_pcts,
                     haines_high_pcts,
@@ -394,6 +526,8 @@ pub struct FireSummaryRow {
     month: u32,
     day: u32,
     hdw_pcts: [i32; 11], // [min, 10, 20, 30, ..., 80, 60, max] min->deciles->max
+    conv_t_pcts:[Option<f64>; 11],
+    cape_ratio_pcts:[Option<f64>; 11],
     haines_low_pcts: [f64; 6], // [0,2,3,4,5,6] relative frequency.
     haines_mid_pcts: [f64; 6], //            "
     haines_high_pcts: [f64; 6], //           "
@@ -407,6 +541,12 @@ impl FireSummaryRow {
         to_return.push(self.day.to_string());
         for percentile in &self.hdw_pcts {
             to_return.push(percentile.to_string());
+        }
+        for percentile in &self.conv_t_pcts {
+            to_return.push(percentile.map(|val| val.to_string()).unwrap_or_else(|| "".to_string()));
+        }
+        for percentile in &self.cape_ratio_pcts {
+            to_return.push(percentile.map(|val| val.to_string()).unwrap_or_else(|| "".to_string()));
         }
         for percent in &self.haines_low_pcts {
             to_return.push(percent.to_string());

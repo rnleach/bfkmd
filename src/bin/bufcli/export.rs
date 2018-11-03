@@ -31,6 +31,19 @@ pub fn export_climo(
         headers.push(format!("hdw {}th percentile", i * 10));
     }
     headers.push("max hdw".to_string());
+
+    headers.push("min conv_t_def".to_string());
+    for i in 1..=9 {
+        headers.push(format!("conv_t_def {}th percentile", i * 10));
+    }
+    headers.push("max conv_t_def".to_string());
+
+    headers.push("min cape ratio".to_string());
+    for i in 1..=9 {
+        headers.push(format!("cape ratio {}th percentile", i * 10));
+    }
+    headers.push("max capre ratio".to_string());
+
     for i in 0..=6 {
         if i == 1 {
             continue;
