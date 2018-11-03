@@ -347,30 +347,30 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
                             _ => panic!("Invalid Haines value"),
                         }
                     });
-                let haines_total = haines_total as f64;
+                let haines_total = f64::from(haines_total);
                 let haines_high_pcts = [
-                    haines_high.0 as f64 / haines_total,
-                    haines_high.1 as f64 / haines_total,
-                    haines_high.2 as f64 / haines_total,
-                    haines_high.3 as f64 / haines_total,
-                    haines_high.4 as f64 / haines_total,
-                    haines_high.5 as f64 / haines_total,
+                    f64::from(haines_high.0) / haines_total,
+                    f64::from(haines_high.1) / haines_total,
+                    f64::from(haines_high.2) / haines_total,
+                    f64::from(haines_high.3) / haines_total,
+                    f64::from(haines_high.4) / haines_total,
+                    f64::from(haines_high.5) / haines_total,
                 ];
                 let haines_mid_pcts = [
-                    haines_mid.0 as f64 / haines_total,
-                    haines_mid.1 as f64 / haines_total,
-                    haines_mid.2 as f64 / haines_total,
-                    haines_mid.3 as f64 / haines_total,
-                    haines_mid.4 as f64 / haines_total,
-                    haines_mid.5 as f64 / haines_total,
+                    f64::from(haines_mid.0) / haines_total,
+                    f64::from(haines_mid.1) / haines_total,
+                    f64::from(haines_mid.2) / haines_total,
+                    f64::from(haines_mid.3) / haines_total,
+                    f64::from(haines_mid.4) / haines_total,
+                    f64::from(haines_mid.5) / haines_total,
                 ];
                 let haines_low_pcts = [
-                    haines_low.0 as f64 / haines_total,
-                    haines_low.1 as f64 / haines_total,
-                    haines_low.2 as f64 / haines_total,
-                    haines_low.3 as f64 / haines_total,
-                    haines_low.4 as f64 / haines_total,
-                    haines_low.5 as f64 / haines_total,
+                    f64::from(haines_low.0) / haines_total,
+                    f64::from(haines_low.1) / haines_total,
+                    f64::from(haines_low.2) / haines_total,
+                    f64::from(haines_low.3) / haines_total,
+                    f64::from(haines_low.4) / haines_total,
+                    f64::from(haines_low.5) / haines_total,
                 ];
 
                 to_return.push(FireSummaryRow {

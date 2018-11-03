@@ -309,8 +309,7 @@ fn start_parser_thread(
                     let bufkit_data = match BufkitData::new(&data) {
                         Ok(bufkit_data) => bufkit_data,
                         Err(err) => {
-                            let message =
-                                ErrorMessage::DataError(site, model, init_time, Error::from(err));
+                            let message = ErrorMessage::DataError(site, model, init_time, err);
                             parse_errors.send(message);
                             continue;
                         }
@@ -320,7 +319,7 @@ fn start_parser_thread(
                         anal.sounding()
                             .get_lead_time()
                             .into_option()
-                            .and_then(|lt| Some((lt as i64) < model.hours_between_runs()))
+                            .and_then(|lt| Some(i64::from(lt) < model.hours_between_runs()))
                             .unwrap_or(false)
                     }) {
                         if let Some(valid_time) = anal.sounding().get_valid_time() {
@@ -547,7 +546,7 @@ fn start_stats_thread(
                 };
 
                 if let Err(err) = res {
-                    let message = ErrorMessage::Critical(Error::from(err));
+                    let message = ErrorMessage::Critical(err);
                     err_snd.send(message);
                     return;
                 }
