@@ -21,7 +21,7 @@ pub fn create(_root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
         ));
     }
 
-    Archive::create_new(root)?;
+    Archive::create(root)?;
 
     Ok(())
 }

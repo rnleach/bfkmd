@@ -85,7 +85,7 @@ fn sites_list(
     //
     // Combine filters to make an iterator over the sites.
     //
-    let master_list = arch.get_sites()?;
+    let master_list = arch.sites()?;
     let sites_iter = || {
         master_list
             .iter()
@@ -123,7 +123,7 @@ fn sites_list(
         let notes = site.notes.as_ref().unwrap_or(&blank);
         let auto_dl = if site.auto_download { "Yes" } else { "No" };
         let models = arch
-            .models_for_site(id)?
+            .models(id)?
             .into_iter()
             .map(|mdl| mdl.as_static().to_owned())
             .collect::<Vec<String>>()
@@ -152,7 +152,7 @@ fn sites_modify(
 
     // Safe to unwrap because the argument is required.
     let site = sub_sub_args.value_of("site").unwrap();
-    let mut site = arch.get_site_info(site)?;
+    let mut site = arch.site_info(site)?;
 
     if let Some(new_state) = sub_sub_args.value_of("state") {
         match StateProv::from_str(&new_state.to_uppercase()) {
@@ -200,12 +200,10 @@ fn sites_inventory(
     let arch = Archive::connect(root)?;
 
     // Safe to unwrap because the argument is required.
-    let site = sub_sub_args
-        .value_of("site")
-        .ok_or(BufkitDataErr::GeneralError)?;
+    let site = sub_sub_args.value_of("site").unwrap();
 
     for model in Model::iter() {
-        let inv = match arch.get_inventory(site, model) {
+        let inv = match arch.inventory(site, model) {
             ok @ Ok(_) => ok,
             Err(BufkitDataErr::NotEnoughData) => {
                 println!(

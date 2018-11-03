@@ -44,7 +44,7 @@ pub fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
     let start_date = if let Some(start_date) = sub_args.value_of("start") {
         parse_date_string(start_date)
     } else {
-        match arch.get_most_recent_valid_time(site, model) {
+        match arch.most_recent_valid_time(site, model) {
             Ok(vt) => vt,
             Err(_) => bail(&format!("No data for site {} and model {}.", site, model)),
         }
@@ -53,18 +53,18 @@ pub fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
     let end_date = if let Some(end_date) = sub_args.value_of("end") {
         parse_date_string(end_date)
     } else if sub_args.is_present("start") {
-        arch.get_most_recent_valid_time(site, model)?
+        arch.most_recent_valid_time(site, model)?
     } else {
         start_date
     };
 
     for init_time in model.all_runs(&start_date, &end_date) {
-        if !arch.exists(site, model, &init_time)? {
+        if !arch.file_exists(site, model, &init_time)? {
             continue;
         }
 
         let save_path = target.join(arch.file_name(site, model, &init_time));
-        let data = arch.get_file(site, model, &init_time)?;
+        let data = arch.retrieve(site, model, &init_time)?;
         let mut f = File::create(save_path)?;
         let mut bw = BufWriter::new(f);
         bw.write_all(data.as_bytes())?;

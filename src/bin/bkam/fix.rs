@@ -35,13 +35,13 @@ pub fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Error> {
                 "Error connecting to archive database {}. Trying to create a new database.\n",
                 err
             );
-            Archive::create_new(root)?
+            Archive::create(root)?
         }
     };
 
     // Check that all the files listed in the index are also in the data directory
     println!("Cleaning up the index.");
-    let (jh, recv) = arch.clean_archive()?;
+    let (jh, recv) = arch.clean()?;
     for message in recv {
         println!("      {}", message);
     }

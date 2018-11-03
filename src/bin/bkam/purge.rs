@@ -34,7 +34,7 @@ pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
         .unwrap_or_else(|| Utc::now().naive_utc());
 
     if sites.is_empty() {
-        sites = arch.get_sites()?.into_iter().map(|site| site.id).collect();
+        sites = arch.sites()?.into_iter().map(|site| site.id).collect();
     }
 
     if models.is_empty() {
@@ -42,7 +42,7 @@ pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
     }
 
     for site in &sites {
-        let available_models = arch.models_for_site(site)?;
+        let available_models = arch.models(site)?;
         for &model in &models {
             if !available_models.contains(&model) {
                 continue;
@@ -52,7 +52,7 @@ pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
 
             for run in all_runs {
                 println!("  Removing {} {} {}.", site, model.as_static(), run);
-                if let Ok(()) = arch.remove_file(site, model, &run) {}
+                if let Ok(()) = arch.remove(site, model, &run) {}
             }
         }
     }

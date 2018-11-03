@@ -42,7 +42,7 @@ pub fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
             .get_valid_time()
             .ok_or(BufkitDataErr::NotEnoughData)?;
 
-        arch.add_file(site, model, &init_time, f.raw_text())?;
+        arch.add(site, model, &init_time, f.raw_text())?;
     }
 
     Ok(())

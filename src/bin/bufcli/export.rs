@@ -1,4 +1,4 @@
-use bufkit_data::Model;
+use bufkit_data::{Archive, Model};
 use climo_db::{ClimoDB, ClimoDBInterface};
 use csv;
 use failure::Error;
@@ -11,12 +11,14 @@ pub fn export_climo(
     site: &str,
     model: Model,
 ) -> Result<(), Error> {
-    let climo_db = ClimoDB::open_or_create(root)?;
-    let climo_db = ClimoDBInterface::initialize(&climo_db, site, model, root)?;
+    let climo_db = ClimoDB::connect_or_create(root)?;
+    let climo_db = ClimoDBInterface::initialize(&climo_db)?;
 
-    let fire_climo = climo_db.calc_fire_summary()?;
+    let site = &Archive::connect(root)?.site_info(site)?;
 
-    let fire_climo_file_name = format!("{}_{}_fire_climo.csv", site, model);
+    let fire_climo = climo_db.calc_fire_summary(site, model)?;
+
+    let fire_climo_file_name = format!("{}_{}_fire_climo.csv", site.id, model);
     let fire_climo_path = destination.join(fire_climo_file_name);
     let file = File::create(fire_climo_path)?;
     let mut wtr = csv::Writer::from_writer(file);

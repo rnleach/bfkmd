@@ -1,13 +1,10 @@
-use super::builder::ErrorMessage;
-use bufkit_data::{Archive, Model, Site};
-use chrono::{Datelike, Duration, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc};
-use crossbeam_channel::{self, Receiver, Sender};
+use bufkit_data::{Model, Site};
+use chrono::{Datelike, Duration, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 use failure::Error;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, Statement, NO_PARAMS};
 use std::fs::create_dir;
 use std::path::{Path, PathBuf};
-use std::{thread, thread::JoinHandle};
 use strum::AsStaticRef;
 
 pub struct ClimoDB {
@@ -22,7 +19,7 @@ impl ClimoDB {
         arch_root.join(Self::CLIMO_DIR).join(Self::CLIMO_DB)
     }
 
-    pub fn open_or_create(arch_root: &Path) -> Result<Self, Error> {
+    pub fn connect_or_create(arch_root: &Path) -> Result<Self, Error> {
         let climo_path = arch_root.join(Self::CLIMO_DIR);
         if !climo_path.is_dir() {
             create_dir(&climo_path)?;
@@ -86,104 +83,75 @@ pub struct ClimoDBInterface<'a, 'b: 'a> {
     conn: &'a Connection,
     add_location_query: Statement<'b>,
     add_fire_data_query: Statement<'b>,
-    site: String,
-    model: String,
-    time_zone: FixedOffset,
+    check_exists_query: Statement<'b>,
 }
 
 impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
-    pub fn initialize(
-        climo_db: &'b ClimoDB,
-        site: &str,
-        model: Model,
-        root: &Path,
-    ) -> Result<Self, Error> {
+    pub fn initialize(climo_db: &'b ClimoDB) -> Result<Self, Error> {
         let conn = &climo_db.conn;
-        let site = site.to_uppercase();
-        let model = model.as_static().to_string();
-        let arch = Archive::connect(root)?;
-        let Site { time_zone, .. } = arch.get_site_info(&site)?;
-        let time_zone = time_zone.unwrap_or(FixedOffset::west(0));
-
-        let add_location_query = conn.prepare(&format!(
+        let add_location_query = conn.prepare(
             "
-                    INSERT OR IGNORE INTO 
-                    locations (site, model, start_date, latitude, longitude, elevation_m)
-                    VALUES('{}', '{}', ?1, ?2, ?3, ?4)
-                ",
-            site, model,
-        ))?;
+                INSERT OR IGNORE INTO 
+                locations (site, model, start_date, latitude, longitude, elevation_m)
+                VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+            ",
+        )?;
 
-        let add_fire_data_query = conn.prepare(&format!(
+        let add_fire_data_query = conn.prepare(
             "
-                    INSERT OR REPLACE INTO
-                    fire (site, model, valid_time, year_lcl, month_lcl, day_lcl, hour_lcl, 
-                        haines_high, haines_mid, haines_low, hdw)
-                    VALUES ('{}', '{}', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                ",
-            site, model,
-        ))?;
+                INSERT OR REPLACE INTO
+                fire (site, model, valid_time, year_lcl, month_lcl, day_lcl, hour_lcl, 
+                    haines_high, haines_mid, haines_low, hdw)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            ",
+        )?;
+
+        let check_exists_query = conn.prepare(
+            "
+                SELECT COUNT(*) FROM 
+                fire 
+                WHERE site = ?1 AND MODEL = ?2 AND valid_time = ?3
+            ",
+        )?;
 
         Ok(ClimoDBInterface {
             conn,
             add_location_query,
             add_fire_data_query,
-            site,
-            model,
-            time_zone,
+            check_exists_query,
         })
     }
 
     #[inline]
-    pub fn get_current_climo_date_range(
+    pub fn exists(
         &mut self,
-        site: &str,
+        site: &Site,
         model: Model,
-    ) -> Result<(NaiveDateTime, NaiveDateTime), Error> {
-        let site = site.to_uppercase();
+        valid_time: NaiveDateTime,
+    ) -> Result<bool, Error> {
         let model_str = model.as_static();
 
-        let start_res: Result<Result<NaiveDateTime, _>, _> = self.conn.query_row(
-            "
-                SELECT valid_time 
-                FROM fire 
-                WHERE site = ?1 AND model = ?2 
-                ORDER BY valid_time ASC 
-                LIMIT 1
-            ",
-            &[&site, model_str],
+        let num: i32 = self.check_exists_query.query_row(
+            &[&site.id as &ToSql, &model_str, &valid_time as &ToSql],
             |row| row.get_checked(0),
-        );
+        )??;
 
-        let end_res: Result<Result<NaiveDateTime, _>, _> = self.conn.query_row(
-            "
-                SELECT valid_time 
-                FROM fire 
-                WHERE site = ?1 AND model = ?2 
-                ORDER BY valid_time DESC 
-                LIMIT 1
-            ",
-            &[&site, model_str],
-            |row| row.get_checked(0),
-        );
-
-        if let (Ok(Ok(start)), Ok(Ok(end))) = (start_res, end_res) {
-            Ok((start, end))
-        } else {
-            let now = Utc::now().naive_utc();
-            Ok((now, now))
-        }
+        Ok(num > 0)
     }
 
     #[inline]
     pub fn add_location(
         &mut self,
+        site: &Site,
+        model: Model,
         valid_time: NaiveDateTime,
         lat: f64,
         lon: f64,
         elev_m: f64,
     ) -> Result<(), Error> {
         self.add_location_query.execute(&[
+            &site.id as &ToSql,
+            &model.as_static(),
             &valid_time as &ToSql,
             &lat as &ToSql,
             &lon as &ToSql,
@@ -196,17 +164,26 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
     #[inline]
     pub fn add_fire(
         &mut self,
+        site: &Site,
+        model: Model,
         valid_time: NaiveDateTime,
         hns_high_mid_low: (i32, i32, i32),
         hdw: i32,
     ) -> Result<(), Error> {
-        let lcl_time = self.time_zone.from_utc_datetime(&valid_time);
+        let lcl_time = site
+            .time_zone
+            .unwrap_or_else(|| FixedOffset::west(0))
+            .from_utc_datetime(&valid_time);
         let year_lcl = lcl_time.year();
         let month_lcl = lcl_time.month();
         let day_lcl = lcl_time.day();
         let hour_lcl = lcl_time.hour();
 
+        print!("adding fire...");
+
         self.add_fire_data_query.execute(&[
+            &site.id as &ToSql,
+            &model.as_static(),
             &valid_time as &ToSql,
             &year_lcl as &ToSql,
             &month_lcl as &ToSql,
@@ -217,43 +194,48 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
             &hns_high_mid_low.2 as &ToSql,
             &hdw as &ToSql,
         ])?;
+        println!("added {} {} {}", site.id, model, valid_time);
 
         Ok(())
     }
 
-    pub fn calc_fire_summary(&self) -> Result<Vec<FireSummaryRow>, Error> {
+    pub fn calc_fire_summary(
+        &self,
+        site: &Site,
+        model: Model,
+    ) -> Result<Vec<FireSummaryRow>, Error> {
         let mut to_return = Vec::with_capacity(366);
 
         // Get the daily max HDW
-        let mut hdw_stmt = self.conn.prepare(&format!(
+        let mut hdw_stmt = self.conn.prepare(
             "
-                    SELECT month_lcl,day_lcl,MAX(hdw) 
-                    FROM fire 
-                    WHERE site ='{}' and model = '{}' 
-                    GROUP BY year_lcl,month_lcl,day_lcl
-                    ORDER BY hdw ASC
-                ",
-            self.site, self.model
-        ))?;
+                SELECT month_lcl,day_lcl,MAX(hdw) 
+                FROM fire 
+                WHERE site = $1 and model = $2 
+                GROUP BY year_lcl,month_lcl,day_lcl
+                ORDER BY hdw ASC
+            ",
+        )?;
+
         let daily_max_hdw: Result<Vec<(i32, i32, i32)>, _> = hdw_stmt
-            .query_map(NO_PARAMS, |row| (row.get(0), row.get(1), row.get(2)))?
-            .collect();
+            .query_map(&[&site.id as &ToSql, &model.as_static()], |row| {
+                (row.get(0), row.get(1), row.get(2))
+            })?.collect();
         let daily_max_hdw = daily_max_hdw?;
 
         if daily_max_hdw.is_empty() {
             return Err(format_err!("Not enough data"));
         }
 
-        let mut haines_stmt = self.conn.prepare(&format!(
+        let mut haines_stmt = self.conn.prepare(
             "
-                    SELECT month_lcl,day_lcl,haines_high,haines_mid,haines_low 
-                    FROM fire 
-                    WHERE site ='{}' AND model = '{}' AND hour_lcl = 16
-                ",
-            self.site, self.model
-        ))?;
+                SELECT month_lcl,day_lcl,haines_high,haines_mid,haines_low 
+                FROM fire 
+                WHERE site =$1 AND model = $2 AND hour_lcl = 16
+            ",
+        )?;
         let evening_haines: Result<Vec<(i32, i32, i32, i32, i32)>, _> = haines_stmt
-            .query_map(NO_PARAMS, |row| {
+            .query_map(&[&site.id as &ToSql, &model.as_static()], |row| {
                 (row.get(0), row.get(1), row.get(2), row.get(3), row.get(4))
             })?.collect();
         let evening_haines = evening_haines?;
@@ -439,74 +421,4 @@ impl FireSummaryRow {
 
         to_return
     }
-}
-
-#[derive(Debug)]
-pub enum DBRequest {
-    GetClimoDateRange(Sender<DBResponse>),
-    AddLocation(NaiveDateTime, f64, f64, f64),
-    AddFire(NaiveDateTime, (i32, i32, i32), i32),
-}
-
-#[derive(Debug)]
-pub enum DBResponse {
-    ClimoDateRange(NaiveDateTime, NaiveDateTime),
-}
-
-pub fn start_climo_db_thread(
-    arch_root: &Path,
-    site: &str,
-    model: Model,
-    error_stream: Sender<ErrorMessage>,
-) -> (JoinHandle<()>, Sender<DBRequest>) {
-    use self::DBRequest::*;
-    use self::DBResponse::*;
-    const CAPACITY: usize = 64;
-
-    let (sender, recv): (Sender<DBRequest>, Receiver<_>) = crossbeam_channel::bounded(CAPACITY);
-    let root = arch_root.to_owned();
-    let site = site.to_string();
-
-    let join_handle = thread::Builder::new()
-        .name("climo_db".to_owned())
-        .spawn(move || -> () {
-            let climo_db = match ClimoDB::open_or_create(&root) {
-                Ok(db) => db,
-                Err(err) => {
-                    error_stream.send(ErrorMessage::Critical(err));
-                    return;
-                }
-            };
-
-            let mut climo_db = match ClimoDBInterface::initialize(&climo_db, &site, model, &root) {
-                Ok(iface) => iface,
-                Err(err) => {
-                    error_stream.send(ErrorMessage::Critical(err));
-                    return;
-                }
-            };
-
-            for req in recv {
-                let res = match req {
-                    GetClimoDateRange(sender) => climo_db
-                        .get_current_climo_date_range(&site, model)
-                        .map(|(start, end)| ClimoDateRange(start, end))
-                        .and_then(|response| {
-                            sender.send(response);
-                            Ok(())
-                        }),
-                    AddLocation(start_time, lat, lon, elev_m) => {
-                        climo_db.add_location(start_time, lat, lon, elev_m)
-                    }
-                    AddFire(valid_time, haines, hdw) => climo_db.add_fire(valid_time, haines, hdw),
-                };
-
-                if let Err(err) = res {
-                    error_stream.send(ErrorMessage::Critical(err));
-                    return;
-                }
-            }
-        }).unwrap();
-
-    (join_handle, sender)
 }

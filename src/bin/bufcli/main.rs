@@ -58,11 +58,11 @@ fn main() {
 }
 
 fn run() -> Result<(), Error> {
-    let args = &parse_args()?;
+    let args = parse_args()?;
 
     match args.operation.as_ref() {
-        "build" => build(args, true),
-        "update" => build(args, false),
+        "build" => build_climo(args),
+        "update" => build_climo(args),
         "reset" => reset(args),
         "export" => export(args),
         _ => bail("Unknown operation."),
@@ -159,7 +159,7 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
         .collect();
 
     if sites.is_empty() {
-        sites = arch.get_sites()?.into_iter().map(|site| site.id).collect();
+        sites = arch.sites()?.into_iter().map(|site| site.id).collect();
     }
 
     for site in &sites {
@@ -203,17 +203,7 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
     })
 }
 
-fn build(args: &CmdLineArgs, from_scratch: bool) -> Result<(), Error> {
-    let arch = &Archive::connect(&args.root)?;
-
-    for (site, &model) in iproduct!(&args.sites, &args.models) {
-        build_climo(arch, site, model, from_scratch)?;
-    }
-
-    Ok(())
-}
-
-fn reset(args: &CmdLineArgs) -> Result<(), Error> {
+fn reset(args: CmdLineArgs) -> Result<(), Error> {
     let path = ClimoDB::path_to_climo_db(&args.root);
     if path.as_path().is_file() {}
 
@@ -222,7 +212,7 @@ fn reset(args: &CmdLineArgs) -> Result<(), Error> {
     Ok(())
 }
 
-fn export(args: &CmdLineArgs) -> Result<(), Error> {
+fn export(args: CmdLineArgs) -> Result<(), Error> {
     let target_dir = &args.export_dir.as_ref().unwrap();
 
     for (site, &model) in iproduct!(&args.sites, &args.models) {

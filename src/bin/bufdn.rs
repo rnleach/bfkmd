@@ -197,7 +197,7 @@ fn run() -> Result<(), Error> {
         for (site, model, init_time, download_res) in save_rx {
             let save_res = match download_res {
                 StepResult::BufkitFileAsString(data) => {
-                    match arch.add_file(&site, model, &init_time, &data) {
+                    match arch.add(&site, model, &init_time, &data) {
                         Ok(_) => StepResult::Success,
                         Err(err) => StepResult::ArhciveError(err.into()),
                     }
@@ -256,7 +256,9 @@ fn run() -> Result<(), Error> {
         // Filter out known bad combinations
         .filter(|(site, model, _)| !invalid_combination(site, *model))
         // Filter out data already in the databse
-        .filter(|(site, model, init_time)| !arch.exists(site, *model, init_time).unwrap_or(false))
+        .filter(|(site, model, init_time)| {
+            !arch.file_exists(site, *model, init_time).unwrap_or(false)
+        })
         // Add the url
         .filter_map(
             |(site, model, init_time)| match build_url(&site, model, &init_time) {
@@ -305,7 +307,7 @@ fn build_download_list<'a>(
 
     if sites.is_empty() {
         sites = arch
-            .get_sites()?
+            .sites()?
             .into_iter()
             .filter(|s| s.auto_download)
             .map(|site| site.id)
@@ -332,7 +334,7 @@ fn build_download_list<'a>(
     Ok(iproduct!(sites, models)
         .filter(move |(site, model)| {
             if auto_models || auto_sites {
-                arch.models_for_site(site)
+                arch.models(site)
                     .map(|vec| vec.contains(model))
                     .unwrap_or(false)
             } else {
