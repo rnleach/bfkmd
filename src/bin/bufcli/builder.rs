@@ -5,8 +5,10 @@ use climo_db::{ClimoDB, ClimoDBInterface};
 use crossbeam_channel::{self as channel, Receiver, Sender};
 use failure::Error;
 use pbr::ProgressBar;
-use sounding_analysis::{haines_high, haines_low, haines_mid, hot_dry_windy, Analysis, 
-    convective_parcel, lift_parcel, partition_cape, mixed_layer_parcel};
+use sounding_analysis::{
+    convective_parcel, haines_high, haines_low, haines_mid, hot_dry_windy, lift_parcel,
+    mixed_layer_parcel, partition_cape, Analysis,
+};
 use sounding_bufkit::BufkitData;
 use std::path::Path;
 use std::thread::{self, JoinHandle};
@@ -391,13 +393,17 @@ fn start_fire_stats_thread(
                         };
 
                         let (conv_t_def, cape_ratio) = {
-                            if let Some(parcel) = convective_parcel(snd).ok(){
+                            if let Some(parcel) = convective_parcel(snd).ok() {
+                                let conv_t_def = mixed_layer_parcel(snd)
+                                    .ok()
+                                    .map(|ml_pcl| parcel.temperature - ml_pcl.temperature);
 
-                                let conv_t_def = mixed_layer_parcel(snd).ok().map(|ml_pcl| parcel.temperature - ml_pcl.temperature);
-
-                                let cape_ratio = lift_parcel(parcel, snd).ok().and_then(|profile_anal| {
-                                    partition_cape(&profile_anal).ok().map(|(dry, wet)| wet/dry)
-                                });
+                                let cape_ratio =
+                                    lift_parcel(parcel, snd).ok().and_then(|profile_anal| {
+                                        partition_cape(&profile_anal)
+                                            .ok()
+                                            .map(|(dry, wet)| wet / dry)
+                                    });
 
                                 (conv_t_def, cape_ratio)
                             } else {

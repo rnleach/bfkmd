@@ -231,7 +231,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         }
 
         // Get the minimum convective deficit for the day in C
-        let mut conv_t_def_stmt  = self.conn.prepare(
+        let mut conv_t_def_stmt = self.conn.prepare(
             "
                 SELECT month_lcl,day_lcl,MIN(conv_t_def_c) 
                 FROM fire 
@@ -252,7 +252,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         }
 
         // Get the maximum daily cape ratio
-        let mut cape_ratio_stmt  = self.conn.prepare(
+        let mut cape_ratio_stmt = self.conn.prepare(
             "
                 SELECT month_lcl,day_lcl,MAX(cape_ratio) 
                 FROM fire 
@@ -526,10 +526,10 @@ pub struct FireSummaryRow {
     month: u32,
     day: u32,
     hdw_pcts: [i32; 11], // [min, 10, 20, 30, ..., 80, 60, max] min->deciles->max
-    conv_t_pcts:[Option<f64>; 11],
-    cape_ratio_pcts:[Option<f64>; 11],
-    haines_low_pcts: [f64; 6], // [0,2,3,4,5,6] relative frequency.
-    haines_mid_pcts: [f64; 6], //            "
+    conv_t_pcts: [Option<f64>; 11],
+    cape_ratio_pcts: [Option<f64>; 11],
+    haines_low_pcts: [f64; 6],  // [0,2,3,4,5,6] relative frequency.
+    haines_mid_pcts: [f64; 6],  //            "
     haines_high_pcts: [f64; 6], //           "
     num_samples: usize,
 }
@@ -543,10 +543,18 @@ impl FireSummaryRow {
             to_return.push(percentile.to_string());
         }
         for percentile in &self.conv_t_pcts {
-            to_return.push(percentile.map(|val| val.to_string()).unwrap_or_else(|| "".to_string()));
+            to_return.push(
+                percentile
+                    .map(|val| val.to_string())
+                    .unwrap_or_else(|| "".to_string()),
+            );
         }
         for percentile in &self.cape_ratio_pcts {
-            to_return.push(percentile.map(|val| val.to_string()).unwrap_or_else(|| "".to_string()));
+            to_return.push(
+                percentile
+                    .map(|val| val.to_string())
+                    .unwrap_or_else(|| "".to_string()),
+            );
         }
         for percent in &self.haines_low_pcts {
             to_return.push(percent.to_string());
