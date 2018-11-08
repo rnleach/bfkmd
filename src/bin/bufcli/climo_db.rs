@@ -70,7 +70,12 @@ impl ClimoDB {
                 haines_low   INT,
                 hdw          INT,
                 conv_t_def_c REAL,
+                dry_cape     INT,
+                wet_cape     INT,
                 cape_ratio   REAL,
+                ccl_agl_m    INT,
+                el_asl_m     INT,
+                dcape        INT,
                 PRIMARY KEY (site, valid_time, model, year_lcl, month_lcl, day_lcl, hour_lcl)
             )",
             NO_PARAMS,
@@ -102,8 +107,10 @@ impl<'a> ClimoDBInterface<'a> {
             "
                 INSERT OR REPLACE INTO
                 fire (site, model, valid_time, year_lcl, month_lcl, day_lcl, hour_lcl, 
-                    haines_high, haines_mid, haines_low, hdw, conv_t_def_c, cape_ratio)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                    haines_high, haines_mid, haines_low, hdw, conv_t_def_c, dry_cape, wet_cape,
+                    cape_ratio, ccl_agl_m, el_asl_m, dcape)
+                VALUES 
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
             ",
         )?;
 
@@ -170,7 +177,12 @@ impl<'a> ClimoDBInterface<'a> {
         hns_high_mid_low: (i32, i32, i32),
         hdw: i32,
         conv_t_def_c: Option<f64>,
+        dry_cape: Option<i32>,
+        wet_cape: Option<i32>,
         cape_ratio: Option<f64>,
+        ccl_agl_m: Option<i32>,
+        el_asl_m: Option<i32>,
+        dcape: Option<i32>,
     ) -> Result<(), Box<dyn Error>> {
         let lcl_time = site
             .time_zone
@@ -194,7 +206,12 @@ impl<'a> ClimoDBInterface<'a> {
             &hns_high_mid_low.2 as &ToSql,
             &hdw as &ToSql,
             &conv_t_def_c as &ToSql,
+            &dry_cape as &ToSql,
+            &wet_cape as &ToSql,
             &cape_ratio as &ToSql,
+            &ccl_agl_m as &ToSql,
+            &el_asl_m as &ToSql,
+            &dcape as &ToSql,
         ])?;
 
         Ok(())

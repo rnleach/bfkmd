@@ -5,8 +5,8 @@ use climo_db::{ClimoDB, ClimoDBInterface};
 use crossbeam_channel::{self as channel, Receiver, Sender};
 use pbr::ProgressBar;
 use sounding_analysis::{
-    convective_parcel, haines_high, haines_low, haines_mid, hot_dry_windy, lift_parcel,
-    mixed_layer_parcel, partition_cape, Analysis,
+    convective_parcel, dcape, haines_high, haines_low, haines_mid, hot_dry_windy, lift_parcel,
+    mixed_layer_parcel, partition_cape, Analysis, ParcelIndex,
 };
 use sounding_bufkit::BufkitData;
 use std::error::Error;
@@ -393,24 +393,46 @@ fn start_fire_stats_thread(
                             }
                         };
 
-                        let (conv_t_def, cape_ratio) = {
+                        let (conv_t_def, dry_cape, wet_cape, cape_ratio, ccl_agl_m, el_asl_m) = {
                             if let Some(parcel) = convective_parcel(snd).ok() {
                                 let conv_t_def = mixed_layer_parcel(snd)
                                     .ok()
                                     .map(|ml_pcl| parcel.temperature - ml_pcl.temperature);
 
-                                let cape_ratio =
-                                    lift_parcel(parcel, snd).ok().and_then(|profile_anal| {
+                                let parcel_anal = lift_parcel(parcel, snd).ok();
+
+                                let (dry, wet) = parcel_anal
+                                    .as_ref()
+                                    .and_then(|profile_anal| {
                                         partition_cape(&profile_anal)
                                             .ok()
-                                            .map(|(dry, wet)| wet / dry)
-                                    });
+                                            .map(|(dry, wet)| (Some(dry), Some(wet)))
+                                    }).unwrap_or((None, None));
 
-                                (conv_t_def, cape_ratio)
+                                let cape_ratio = dry.and_then(|dry| wet.map(|wet| wet / dry));
+                                let dry = dry.map(|dry| dry.round() as i32);
+                                let wet = wet.map(|wet| wet.round() as i32);
+
+                                let (ccl_agl_m, el_asl_m) = parcel_anal
+                                    .as_ref()
+                                    .and_then(|profile_anal| {
+                                        let ccl = profile_anal
+                                            .get_index(ParcelIndex::LCLHeightAGL)
+                                            .map(|ccl| ccl.round() as i32);
+                                        let el = profile_anal
+                                            .get_index(ParcelIndex::ELHeightASL)
+                                            .map(|el| el.round() as i32);
+
+                                        Some((ccl, el))
+                                    }).unwrap_or((None, None));
+
+                                (conv_t_def, dry, wet, cape_ratio, ccl_agl_m, el_asl_m)
                             } else {
-                                (None, None)
+                                (None, None, None, None, None, None)
                             }
                         };
+
+                        let dcp = dcape(snd).ok().map(|(_, dcp, _)| dcp.round() as i32);
 
                         let message = StatsMessage::Fire {
                             site: site.clone(),
@@ -421,7 +443,12 @@ fn start_fire_stats_thread(
                             hns_high,
                             hdw,
                             conv_t_def,
+                            dry_cape,
+                            wet_cape,
                             cape_ratio,
+                            ccl_agl_m,
+                            el_asl_m,
+                            dcape: dcp,
                         };
                         climo_update_requests.send(message);
                     }
@@ -554,7 +581,12 @@ fn start_stats_thread(
                         hns_high,
                         hdw,
                         conv_t_def,
+                        dry_cape,
+                        wet_cape,
                         cape_ratio,
+                        ccl_agl_m,
+                        el_asl_m,
+                        dcape,
                     } => climo_db.add_fire(
                         &site,
                         model,
@@ -562,7 +594,12 @@ fn start_stats_thread(
                         (hns_high, hns_mid, hns_low),
                         hdw,
                         conv_t_def,
+                        dry_cape,
+                        wet_cape,
                         cape_ratio,
+                        ccl_agl_m,
+                        el_asl_m,
+                        dcape,
                     ),
                     StatsMessage::Location {
                         site,
@@ -636,7 +673,12 @@ enum StatsMessage {
         hns_high: i32,
         hdw: i32,
         conv_t_def: Option<f64>,
+        dry_cape: Option<i32>,
+        wet_cape: Option<i32>,
         cape_ratio: Option<f64>,
+        ccl_agl_m: Option<i32>,
+        el_asl_m: Option<i32>,
+        dcape: Option<i32>,
     },
     Location {
         site: Site,
