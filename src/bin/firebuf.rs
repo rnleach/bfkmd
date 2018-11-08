@@ -7,7 +7,6 @@ extern crate chrono;
 extern crate clap;
 extern crate csv;
 extern crate dirs;
-extern crate failure;
 extern crate sounding_analysis;
 extern crate sounding_base;
 extern crate sounding_bufkit;
@@ -21,10 +20,10 @@ use bufkit_data::{Archive, Model};
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use clap::{App, Arg};
 use dirs::home_dir;
-use failure::{Error, Fail};
 use sounding_base::Sounding;
 use sounding_bufkit::BufkitData;
 use std::collections::HashMap;
+use std::error::Error;
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -32,26 +31,21 @@ use strum::{AsStaticRef, IntoEnumIterator};
 use textplots::{Chart, Plot, Shape};
 
 fn main() {
-    if let Err(ref e) = run() {
+    if let Err(e) = run() {
         println!("error: {}", e);
 
-        let mut fail: &Fail = e.as_fail();
+        let mut err = &*e;
 
-        while let Some(cause) = fail.cause() {
+        while let Some(cause) = err.source() {
             println!("caused by: {}", cause);
-
-            if let Some(backtrace) = cause.backtrace() {
-                println!("backtrace: {}\n\n\n", backtrace);
-            }
-
-            fail = cause;
+            err = cause;
         }
 
         ::std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), Error> {
+fn run() -> Result<(), Box<dyn Error>> {
     let args = &parse_args()?;
 
     #[cfg(debug_assertions)]
@@ -97,7 +91,7 @@ fn run() -> Result<(), Error> {
     Ok(())
 }
 
-fn parse_args() -> Result<CmdLineArgs, Error> {
+fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
     let app = App::new("firebuf")
         .author("Ryan Leach <clumsycodemonkey@gmail.com>")
         .version(crate_version!())
@@ -359,7 +353,7 @@ fn calculate_stats(
     init_time: &NaiveDateTime,
     g_stats: &[GraphStatArg],
     t_stats: &[TableStatArg],
-) -> Result<ModelStats, Error> {
+) -> Result<ModelStats, Box<dyn Error>> {
     let analysis = arch.retrieve(site, model, init_time)?;
 
     let analysis = BufkitData::new(&analysis)?;
@@ -483,7 +477,7 @@ fn print_stats(
     stats: &ModelStats,
     g_stats: &[GraphStatArg],
     t_stats: &[TableStatArg],
-) -> Result<(), Error> {
+) -> Result<(), Box<dyn Error>> {
     //
     // Table
     //
@@ -632,7 +626,7 @@ fn save_stats(
     g_stats: &[GraphStatArg],
     _t_stats: &[TableStatArg],
     save_dir: &PathBuf,
-) -> Result<(), Error> {
+) -> Result<(), Box<dyn Error>> {
     let graph_stats = &stats.graph_stats;
     let mut vts: Vec<NaiveDateTime> = graph_stats.keys().cloned().collect();
     vts.sort();

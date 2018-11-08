@@ -1,12 +1,12 @@
 use bfkmd::bail;
 use bufkit_data::{Archive, BufkitDataErr, Model};
 use clap::ArgMatches;
-use failure::Error;
 use sounding_bufkit::BufkitFile;
+use std::error::Error;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-pub fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
+pub fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(root)?;
 
     // unwrap is ok, these are required.

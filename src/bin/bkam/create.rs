@@ -1,10 +1,10 @@
 use bufkit_data::Archive;
 use clap::ArgMatches;
 use dirs::home_dir;
-use failure::{err_msg, Error};
+use std::error::Error;
 use std::path::PathBuf;
 
-pub fn create(_root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
+pub fn create(_root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let root = &sub_args
         .value_of("archive_root")
         .map(PathBuf::from)
@@ -16,9 +16,7 @@ pub fn create(_root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
     if already_exists && sub_args.is_present("force") {
         ::std::fs::remove_dir_all(root)?;
     } else if already_exists {
-        return Err(err_msg(
-            "Archive already exists, must use --force to overwrite.",
-        ));
+        Err("Archive already exists, must use --force to overwrite.")?;
     }
 
     Archive::create(root)?;

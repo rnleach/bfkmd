@@ -1,13 +1,13 @@
 use bfkmd::{bail, parse_date_string};
 use bufkit_data::{Archive, Model};
 use clap::ArgMatches;
-use failure::Error;
+use std::error::Error;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-pub fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
+pub fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(root)?;
 
     // unwrap is ok, these are required.

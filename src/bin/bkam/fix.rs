@@ -1,14 +1,14 @@
 use bufkit_data::Archive;
 use clap::ArgMatches;
-use failure::{err_msg, Error};
+use std::error::Error;
 use std::path::PathBuf;
 
-pub fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Error> {
+pub fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     // Check that the root exists.
     println!("Checking if the archive location exists.");
     if !root.as_path().is_dir() {
         println!("Archive root directory not found. Quitting.");
-        return Err(err_msg("Invalid root."));
+        Err("Invalid root.")?;
     } else {
         println!("Found, moving on.\n");
     }
@@ -18,7 +18,7 @@ pub fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Error> {
     let data_dir = &root.join("data");
     if !data_dir.as_path().is_dir() {
         println!("Archive data directory not found. Archive is empty. Quitting.");
-        return Err(err_msg("Invalid data directory."));
+        Err("Invalid data directory.")?;
     } else {
         println!("Found, moving on.\n");
     }

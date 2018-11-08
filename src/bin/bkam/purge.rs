@@ -2,12 +2,12 @@ use bfkmd::parse_date_string;
 use bufkit_data::{Archive, Model};
 use chrono::{NaiveDate, Utc};
 use clap::ArgMatches;
-use failure::Error;
+use std::error::Error;
 use std::path::PathBuf;
 use std::str::FromStr;
 use strum::{AsStaticRef, IntoEnumIterator};
 
-pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
+pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(root)?;
 
     let mut sites: Vec<String> = sub_args

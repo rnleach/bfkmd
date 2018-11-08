@@ -1,7 +1,7 @@
 use bufkit_data::{Archive, Model};
 use climo_db::{ClimoDB, ClimoDBInterface};
 use csv;
-use failure::Error;
+use std::error::Error;
 use std::fs::File;
 use std::path::Path;
 
@@ -10,7 +10,7 @@ pub fn export_climo(
     destination: &Path,
     site: &str,
     model: Model,
-) -> Result<(), Error> {
+) -> Result<(), Box<dyn Error>> {
     let climo_db = ClimoDB::connect_or_create(root)?;
     let climo_db = ClimoDBInterface::initialize(&climo_db)?;
 
@@ -42,7 +42,7 @@ pub fn export_climo(
     for i in 1..=9 {
         headers.push(format!("cape ratio {}th percentile", i * 10));
     }
-    headers.push("max capre ratio".to_string());
+    headers.push("max cape ratio".to_string());
 
     for i in 0..=6 {
         if i == 1 {

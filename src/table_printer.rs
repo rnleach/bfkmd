@@ -1,4 +1,3 @@
-use failure::Error;
 use std::fmt::{Display, Write};
 use unicode_width::UnicodeWidthStr;
 
@@ -82,11 +81,11 @@ impl TablePrinter {
         }
     }
 
-    pub fn print(self) -> Result<(), Error> {
+    pub fn print(self) -> Result<(), std::fmt::Error> {
         self.print_with_min_width(0)
     }
 
-    pub fn print_with_min_width(self, min_width: usize) -> Result<(), Error> {
+    pub fn print_with_min_width(self, min_width: usize) -> Result<(), std::fmt::Error> {
         //
         // Calculate widths
         //

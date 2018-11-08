@@ -1,8 +1,8 @@
 use bufkit_data::{Model, Site};
 use chrono::{Datelike, Duration, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
-use failure::Error;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, Statement, NO_PARAMS};
+use std::error::Error;
 use std::fs::create_dir;
 use std::path::{Path, PathBuf};
 use strum::AsStaticRef;
@@ -19,7 +19,7 @@ impl ClimoDB {
         arch_root.join(Self::CLIMO_DIR).join(Self::CLIMO_DB)
     }
 
-    pub fn connect_or_create(arch_root: &Path) -> Result<Self, Error> {
+    pub fn connect_or_create(arch_root: &Path) -> Result<Self, Box<dyn Error>> {
         let climo_path = arch_root.join(Self::CLIMO_DIR);
         if !climo_path.is_dir() {
             create_dir(&climo_path)?;
@@ -89,7 +89,7 @@ pub struct ClimoDBInterface<'a, 'b: 'a> {
 }
 
 impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
-    pub fn initialize(climo_db: &'b ClimoDB) -> Result<Self, Error> {
+    pub fn initialize(climo_db: &'b ClimoDB) -> Result<Self, Box<dyn Error>> {
         let conn = &climo_db.conn;
         let add_location_query = conn.prepare(
             "
@@ -130,7 +130,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         site: &Site,
         model: Model,
         valid_time: NaiveDateTime,
-    ) -> Result<bool, Error> {
+    ) -> Result<bool, Box<dyn Error>> {
         let model_str = model.as_static();
 
         let num: i32 = self.check_exists_query.query_row(
@@ -150,7 +150,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         lat: f64,
         lon: f64,
         elev_m: f64,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Box<dyn Error>> {
         self.add_location_query.execute(&[
             &site.id as &ToSql,
             &model.as_static(),
@@ -173,7 +173,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         hdw: i32,
         conv_t_def_c: Option<f64>,
         cape_ratio: Option<f64>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Box<dyn Error>> {
         let lcl_time = site
             .time_zone
             .unwrap_or_else(|| FixedOffset::west(0))
@@ -206,7 +206,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         &self,
         site: &Site,
         model: Model,
-    ) -> Result<Vec<FireSummaryRow>, Error> {
+    ) -> Result<Vec<FireSummaryRow>, Box<dyn Error>> {
         let mut to_return = Vec::with_capacity(366);
 
         // Get the daily max HDW
@@ -227,7 +227,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         let daily_max_hdw = daily_max_hdw?;
 
         if daily_max_hdw.is_empty() {
-            return Err(format_err!("Not enough data"));
+            Err("Not enough data")?;
         }
 
         // Get the minimum convective deficit for the day in C
@@ -248,7 +248,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         let daily_min_conv_t_def = daily_min_conv_t_def?;
 
         if daily_min_conv_t_def.is_empty() {
-            return Err(format_err!("Not enough data"));
+            Err("Not enough data")?;
         }
 
         // Get the maximum daily cape ratio
@@ -269,7 +269,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
         let daily_max_cape_ratio = daily_max_cape_ratio?;
 
         if daily_max_cape_ratio.is_empty() {
-            return Err(format_err!("Not enough data"));
+            Err("Not enough data")?;
         }
 
         // Get the daily afternoon Haines index
@@ -322,7 +322,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
                     }).collect();
 
                 if hdw_vals.is_empty() {
-                    return Err(format_err!("Not enough data"));
+                    Err("Not enough data")?;
                 }
 
                 let pct_idx = |pctl: usize, len: usize| -> usize {
@@ -367,7 +367,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
                     }).collect();
 
                 if conv_t_vals.is_empty() {
-                    return Err(format_err!("Not enough data"));
+                    Err("Not enough data")?;
                 }
 
                 let conv_t_pcts: [Option<f64>; 11] = [
@@ -406,7 +406,7 @@ impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
                     }).collect();
 
                 if cape_ratio_vals.is_empty() {
-                    return Err(format_err!("Not enough data"));
+                    Err("Not enough data")?;
                 }
 
                 let cape_ratio_pcts: [Option<f64>; 11] = [

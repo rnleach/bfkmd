@@ -2,12 +2,12 @@ use bfkmd::TablePrinter;
 use bufkit_data::{Archive, BufkitDataErr, Model, Site, StateProv};
 use chrono::FixedOffset;
 use clap::ArgMatches;
-use failure::Error;
+use std::error::Error;
 use std::path::PathBuf;
 use std::str::FromStr;
 use strum::{AsStaticRef, IntoEnumIterator};
 
-pub fn sites(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Error> {
+pub fn sites(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     match sub_args.subcommand() {
         ("list", Some(sub_sub_args)) => sites_list(root, sub_args, &sub_sub_args),
         ("modify", Some(sub_sub_args)) => sites_modify(root, sub_args, &sub_sub_args),
@@ -20,7 +20,7 @@ fn sites_list(
     root: &PathBuf,
     _sub_args: &ArgMatches,
     sub_sub_args: &ArgMatches,
-) -> Result<(), Error> {
+) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(root)?;
 
     //
@@ -140,14 +140,15 @@ fn sites_list(
         table_printer.add_row(row);
     }
 
-    table_printer.print()
+    table_printer.print()?;
+    Ok(())
 }
 
 fn sites_modify(
     root: &PathBuf,
     _sub_args: &ArgMatches,
     sub_sub_args: &ArgMatches,
-) -> Result<(), Error> {
+) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(root)?;
 
     // Safe to unwrap because the argument is required.
@@ -196,7 +197,7 @@ fn sites_inventory(
     root: &PathBuf,
     _sub_args: &ArgMatches,
     sub_sub_args: &ArgMatches,
-) -> Result<(), Error> {
+) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(root)?;
 
     // Safe to unwrap because the argument is required.

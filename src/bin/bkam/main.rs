@@ -5,13 +5,12 @@ extern crate chrono;
 #[macro_use]
 extern crate clap;
 extern crate dirs;
-extern crate failure;
 extern crate sounding_bufkit;
 extern crate strum;
 
 use clap::{App, Arg, SubCommand};
 use dirs::home_dir;
-use failure::{Error, Fail};
+use std::error::Error;
 use std::path::PathBuf;
 
 mod create;
@@ -22,26 +21,21 @@ mod purge;
 mod sites;
 
 fn main() {
-    if let Err(ref e) = run() {
+    if let Err(e) = run() {
         println!("error: {}", e);
 
-        let mut fail: &Fail = e.as_fail();
+        let mut err = &*e;
 
-        while let Some(cause) = fail.cause() {
+        while let Some(cause) = err.source() {
             println!("caused by: {}", cause);
-
-            if let Some(backtrace) = cause.backtrace() {
-                println!("backtrace: {}\n\n\n", backtrace);
-            }
-
-            fail = cause;
+            err = cause;
         }
 
         ::std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), Error> {
+fn run() -> Result<(), Box<dyn Error>> {
     let app = App::new("bkam")
         .author("Ryan Leach <clumsycodemonkey@gmail.com>")
         .version(crate_version!())

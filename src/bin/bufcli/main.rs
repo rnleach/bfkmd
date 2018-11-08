@@ -12,8 +12,6 @@ extern crate crossbeam_channel;
 extern crate csv;
 extern crate dirs;
 #[macro_use]
-extern crate failure;
-#[macro_use]
 extern crate itertools;
 extern crate pbr;
 extern crate rusqlite;
@@ -32,32 +30,27 @@ use bufkit_data::{Archive, Model};
 use clap::{App, Arg};
 use dirs::home_dir;
 use export::export_climo;
-use failure::{Error, Fail};
+use std::error::Error;
 use std::path::PathBuf;
 use std::str::FromStr;
 use strum::{AsStaticRef, IntoEnumIterator};
 
 fn main() {
-    if let Err(ref e) = run() {
+    if let Err(e) = run() {
         println!("error: {}", e);
 
-        let mut fail: &Fail = e.as_fail();
+        let mut err = &*e;
 
-        while let Some(cause) = fail.cause() {
+        while let Some(cause) = err.source() {
             println!("caused by: {}", cause);
-
-            if let Some(backtrace) = cause.backtrace() {
-                println!("backtrace: {}\n\n\n", backtrace);
-            }
-
-            fail = cause;
+            err = cause;
         }
 
         ::std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), Error> {
+fn run() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
 
     match args.operation.as_ref() {
@@ -78,7 +71,7 @@ struct CmdLineArgs {
     export_dir: Option<PathBuf>,
 }
 
-fn parse_args() -> Result<CmdLineArgs, Error> {
+fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
     let app = App::new("bufcli")
         .author("Ryan Leach <clumsycodemonkey@gmail.com>")
         .version(crate_version!())
@@ -203,7 +196,7 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
     })
 }
 
-fn reset(args: CmdLineArgs) -> Result<(), Error> {
+fn reset(args: CmdLineArgs) -> Result<(), Box<dyn Error>> {
     let path = ClimoDB::path_to_climo_db(&args.root);
     if path.as_path().is_file() {}
 
@@ -212,7 +205,7 @@ fn reset(args: CmdLineArgs) -> Result<(), Error> {
     Ok(())
 }
 
-fn export(args: CmdLineArgs) -> Result<(), Error> {
+fn export(args: CmdLineArgs) -> Result<(), Box<dyn Error>> {
     let target_dir = &args.export_dir.as_ref().unwrap();
 
     for (site, &model) in iproduct!(&args.sites, &args.models) {

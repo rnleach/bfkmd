@@ -3,20 +3,20 @@ use bufkit_data::{Archive, BufkitDataErr, Model, Site};
 use chrono::NaiveDateTime;
 use climo_db::{ClimoDB, ClimoDBInterface};
 use crossbeam_channel::{self as channel, Receiver, Sender};
-use failure::Error;
 use pbr::ProgressBar;
 use sounding_analysis::{
     convective_parcel, haines_high, haines_low, haines_mid, hot_dry_windy, lift_parcel,
     mixed_layer_parcel, partition_cape, Analysis,
 };
 use sounding_bufkit::BufkitData;
+use std::error::Error;
 use std::path::Path;
 use std::thread::{self, JoinHandle};
 use strum::AsStaticRef;
 
 const CAPACITY: usize = 16;
 
-pub(crate) fn build_climo(args: CmdLineArgs) -> Result<(), Error> {
+pub(crate) fn build_climo(args: CmdLineArgs) -> Result<(), Box<dyn Error>> {
     let root = &args.root.clone();
     let force_rebuild = args.operation == "build";
 
@@ -150,7 +150,7 @@ macro_rules! check_bail {
         match $res {
             Ok(val) => val,
             Err(err) => {
-                let message = ErrorMessage::Critical(err.into());
+                let message = ErrorMessage::Critical(err.to_string());
                 $err_send.send(message);
                 return;
             }
@@ -162,7 +162,7 @@ fn start_entry_point_thread(
     args: CmdLineArgs,
     entry_point_snd: Sender<PipelineMessage>,
     error_snd: Sender<ErrorMessage>,
-) -> Result<(JoinHandle<()>, i64), Error> {
+) -> Result<(JoinHandle<()>, i64), Box<dyn Error>> {
     let arch = Archive::connect(&args.root)?;
     let sites = args
         .sites
@@ -207,7 +207,7 @@ fn start_filter_thread(
     filter_requests_rcv: Receiver<PipelineMessage>,
     load_requests_snd: Sender<PipelineMessage>,
     err_snd: Sender<ErrorMessage>,
-) -> Result<JoinHandle<()>, Error> {
+) -> Result<JoinHandle<()>, Box<dyn Error>> {
     let root = root.to_path_buf();
 
     let jh = thread::Builder::new()
@@ -249,7 +249,7 @@ fn start_load_thread(
     load_requests_rcv: Receiver<PipelineMessage>,
     parse_requests_snd: Sender<PipelineMessage>,
     err_snd: Sender<ErrorMessage>,
-) -> Result<JoinHandle<()>, Error> {
+) -> Result<JoinHandle<()>, Box<dyn Error>> {
     let root = root.to_path_buf();
 
     let jh = thread::Builder::new()
@@ -278,7 +278,7 @@ fn start_load_thread(
                         }
                         Err(err) => {
                             let message =
-                                ErrorMessage::DataError(site, model, init_time, Error::from(err));
+                                ErrorMessage::DataError(site, model, init_time, err.to_string());
                             err_snd.send(message);
                         }
                     }
@@ -296,7 +296,7 @@ fn start_parser_thread(
     fire_requests: Sender<PipelineMessage>,
     parse_errors: Sender<ErrorMessage>,
     err_snd: Sender<ErrorMessage>,
-) -> Result<JoinHandle<()>, Error> {
+) -> Result<JoinHandle<()>, Box<dyn Error>> {
     let jh = thread::Builder::new()
         .name("SoundingParser".to_string())
         .spawn(move || {
@@ -312,7 +312,8 @@ fn start_parser_thread(
                     let bufkit_data = match BufkitData::new(&data) {
                         Ok(bufkit_data) => bufkit_data,
                         Err(err) => {
-                            let message = ErrorMessage::DataError(site, model, init_time, err);
+                            let message =
+                                ErrorMessage::DataError(site, model, init_time, err.to_string());
                             parse_errors.send(message);
                             continue;
                         }
@@ -339,7 +340,7 @@ fn start_parser_thread(
                                 site.clone(),
                                 model,
                                 init_time,
-                                format_err!("No valid time."),
+                                "No valid time.".to_string(),
                             );
                             err_snd.send(message);
                         }
@@ -358,7 +359,7 @@ fn start_fire_stats_thread(
     location_requests: Sender<PipelineMessage>,
     climo_update_requests: Sender<StatsMessage>,
     err_snd: Sender<ErrorMessage>,
-) -> Result<JoinHandle<()>, Error> {
+) -> Result<JoinHandle<()>, Box<dyn Error>> {
     let jh = thread::Builder::new()
         .name("FireStatsCalc".to_string())
         .spawn(move || {
@@ -385,7 +386,7 @@ fn start_fire_stats_thread(
                                     site,
                                     model,
                                     valid_time,
-                                    Error::from(err),
+                                    err.to_string(),
                                 );
                                 err_snd.send(message);
                                 continue;
@@ -447,7 +448,7 @@ fn start_location_stats_thread(
     completed_notification: Sender<PipelineMessage>,
     climo_update_requests: Sender<StatsMessage>,
     err_snd: Sender<ErrorMessage>,
-) -> Result<JoinHandle<()>, Error> {
+) -> Result<JoinHandle<()>, Box<dyn Error>> {
     let jh = thread::Builder::new()
         .name("LocationUpdater".to_string())
         .spawn(move || {
@@ -487,7 +488,7 @@ fn start_location_stats_thread(
                                 site,
                                 model,
                                 valid_time,
-                                format_err!("Missing location information."),
+                                "Missing location information.".to_string(),
                             );
                             err_snd.send(message);
                         }
@@ -508,7 +509,7 @@ fn start_parse_err_handler(
     root: &Path,
     parse_err_rcv: Receiver<ErrorMessage>,
     err_snd: Sender<ErrorMessage>,
-) -> Result<JoinHandle<()>, Error> {
+) -> Result<JoinHandle<()>, Box<dyn Error>> {
     let root = root.to_path_buf();
 
     let jh = thread::Builder::new()
@@ -533,7 +534,7 @@ fn start_stats_thread(
     root: &Path,
     stats_rcv: Receiver<StatsMessage>,
     err_snd: Sender<ErrorMessage>,
-) -> Result<JoinHandle<()>, Error> {
+) -> Result<JoinHandle<()>, Box<dyn Error>> {
     let root = root.to_path_buf();
 
     let jh = thread::Builder::new()
@@ -574,7 +575,7 @@ fn start_stats_thread(
                 };
 
                 if let Err(err) = res {
-                    let message = ErrorMessage::Critical(err);
+                    let message = ErrorMessage::Critical(err.to_string());
                     err_snd.send(message);
                     return;
                 }
@@ -649,6 +650,6 @@ enum StatsMessage {
 
 #[derive(Debug)]
 enum ErrorMessage {
-    Critical(Error),
-    DataError(Site, Model, NaiveDateTime, Error),
+    Critical(String),
+    DataError(Site, Model, NaiveDateTime, String),
 }
