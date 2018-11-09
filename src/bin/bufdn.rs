@@ -73,7 +73,9 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .long_help(concat!(
                     "Site identifiers (e.g. kord, katl, smn). ",
                     "If not specified, it will look in the database for sites configured for auto ",
-                    "download and use all of them."
+                    "download and use all of them. If this is the first time downloading for this ",
+                    "site, then it won't be in the database yet and you will need to also specify ",
+                    "which models to download for the site."
                 )),
         ).arg(
             Arg::with_name("models")
@@ -123,7 +125,9 @@ fn run() -> Result<(), Box<dyn Error>> {
                     "Set the root directory of the archive you are invoking this command for.",
                 ).conflicts_with("create")
                 .global(true),
-        );
+        ).after_help(concat!(
+            "To download data for a new site for the first time you must also specify the model."
+        ));
 
     let matches = app.get_matches();
 
