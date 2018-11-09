@@ -59,6 +59,8 @@ enum StepResult {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
+    const CAPACITY: usize = 16;
+
     let app = App::new("bufdn")
         .author("Ryan Leach <clumsycodemonkey@gmail.com>")
         .version(crate_version!())
@@ -143,19 +145,19 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let main_tx: channel::Sender<(String, Model, NaiveDateTime, String)>;
     let dl_rx: channel::Receiver<(String, Model, NaiveDateTime, String)>;
-    let tx_rx = channel::bounded(10);
+    let tx_rx = channel::bounded(CAPACITY);
     main_tx = tx_rx.0;
     dl_rx = tx_rx.1;
 
     let dl_tx: channel::Sender<(String, Model, NaiveDateTime, StepResult)>;
     let save_rx: channel::Receiver<(String, Model, NaiveDateTime, StepResult)>;
-    let tx_rx = channel::bounded(10);
+    let tx_rx = channel::bounded(CAPACITY);
     dl_tx = tx_rx.0;
     save_rx = tx_rx.1;
 
     let save_tx: channel::Sender<(String, Model, NaiveDateTime, StepResult)>;
     let print_rx: channel::Receiver<(String, Model, NaiveDateTime, StepResult)>;
-    let tx_rx = channel::bounded(10);
+    let tx_rx = channel::bounded(CAPACITY);
     save_tx = tx_rx.0;
     print_rx = tx_rx.1;
 
@@ -181,7 +183,9 @@ fn run() -> Result<(), Box<dyn Error>> {
                 Err(err) => StepResult::OtherDownloadError(err.to_string()),
             };
 
-            dl_tx.send((site, model, init_time, download_result));
+            dl_tx
+                .send((site, model, init_time, download_result))
+                .map_err(|err| format!("{}", err))?;
         }
 
         Ok(())
@@ -202,7 +206,9 @@ fn run() -> Result<(), Box<dyn Error>> {
                 _ => download_res,
             };
 
-            save_tx.send((site, model, init_time, save_res));
+            save_tx
+                .send((site, model, init_time, save_res))
+                .map_err(|err| format!("{}", err))?;
         }
 
         Ok(())
@@ -263,7 +269,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         .filter(|(_, _, _, url)| !missing_urls.is_missing(url).unwrap_or(false))
         // Pass it off to another thread for downloading.
         .for_each(move |list_val: (String, Model, NaiveDateTime, String)| {
-            main_tx.send(list_val);
+            if let Err(_) = main_tx.send(list_val) {
+                return;
+            }
         });
 
     download_handle.join().unwrap()?;

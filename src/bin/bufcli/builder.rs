@@ -86,8 +86,8 @@ pub(crate) fn build_climo(args: CmdLineArgs) -> Result<(), Box<dyn Error>> {
     let mut pb = ProgressBar::new(total_num as u64);
     loop {
         select!{
-            recv(error_rcv, msg) => {
-                if let Some(msg) = msg {
+            recv(error_rcv) ->  msg =>{
+                if let Ok(msg) = msg {
                     match msg {
                         ErrorMessage::Critical(err) => Err(err)?,
                         ErrorMessage::DataError(site, model, valid_time, err) => {
@@ -98,19 +98,17 @@ pub(crate) fn build_climo(args: CmdLineArgs) -> Result<(), Box<dyn Error>> {
                     error_done = true;
                 }
             },
-            recv(comp_notify_rcv, msg) => {
+            recv(comp_notify_rcv) -> msg => {
                 match msg {
-                    Some(PipelineMessage::Completed{num}) =>{
+                    Ok(PipelineMessage::Completed{num}) =>{
                         pb.set(num as u64);
                     },
-                    None => pipeline_done = true,
+                    Err(_) => pipeline_done = true,
                     _ => unreachable!(),
                 }
             },
         }
 
-        // Everything is in, so send the terminate message to the climo_db. Everything else should
-        // shut down on it's own by this point.
         if pipeline_done && error_done {
             pb.finish();
             break;
@@ -151,7 +149,9 @@ macro_rules! check_bail {
             Ok(val) => val,
             Err(err) => {
                 let message = ErrorMessage::Critical(err.to_string());
-                $err_send.send(message);
+                if let Err(_) = $err_send.send(message) {
+                    // Ignore this error, we're already shutting down.
+                }
                 return;
             }
         }
@@ -193,7 +193,9 @@ fn start_entry_point_thread(
                         site: site.clone(),
                         num: counter,
                     };
-                    entry_point_snd.send(message);
+                    if let Err(_) = entry_point_snd.send(message) {
+                        return;
+                    }
                 }
             }
         })?;
@@ -233,7 +235,9 @@ fn start_filter_thread(
                             model,
                             init_time,
                         };
-                        load_requests_snd.send(msg);
+                        if let Err(_) = load_requests_snd.send(msg) {
+                            return;
+                        }
                     }
                 } else {
                     unreachable!();
@@ -274,12 +278,16 @@ fn start_load_thread(
                                 init_time,
                                 data,
                             };
-                            parse_requests_snd.send(message);
+                            if let Err(_) = parse_requests_snd.send(message) {
+                                return;
+                            }
                         }
                         Err(err) => {
                             let message =
                                 ErrorMessage::DataError(site, model, init_time, err.to_string());
-                            err_snd.send(message);
+                            if let Err(_) = err_snd.send(message) {
+                                return;
+                            }
                         }
                     }
                 } else {
@@ -314,7 +322,9 @@ fn start_parser_thread(
                         Err(err) => {
                             let message =
                                 ErrorMessage::DataError(site, model, init_time, err.to_string());
-                            parse_errors.send(message);
+                            if let Err(_) = parse_errors.send(message) {
+                                return;
+                            }
                             continue;
                         }
                     };
@@ -334,7 +344,9 @@ fn start_parser_thread(
                                 valid_time,
                                 anal,
                             };
-                            fire_requests.send(message);
+                            if let Err(_) = fire_requests.send(message) {
+                                return;
+                            }
                         } else {
                             let message = ErrorMessage::DataError(
                                 site.clone(),
@@ -342,7 +354,9 @@ fn start_parser_thread(
                                 init_time,
                                 "No valid time.".to_string(),
                             );
-                            err_snd.send(message);
+                            if let Err(_) = err_snd.send(message) {
+                                return;
+                            }
                         }
                     }
                 } else {
@@ -388,7 +402,9 @@ fn start_fire_stats_thread(
                                     valid_time,
                                     err.to_string(),
                                 );
-                                err_snd.send(message);
+                                if let Err(_) = err_snd.send(message) {
+                                    return;
+                                }
                                 continue;
                             }
                         };
@@ -450,7 +466,9 @@ fn start_fire_stats_thread(
                             el_asl_m,
                             dcape: dcp,
                         };
-                        climo_update_requests.send(message);
+                        if let Err(_) = climo_update_requests.send(message) {
+                            return;
+                        }
                     }
 
                     let message = PipelineMessage::Location {
@@ -460,7 +478,9 @@ fn start_fire_stats_thread(
                         valid_time,
                         anal,
                     };
-                    location_requests.send(message);
+                    if let Err(_) = location_requests.send(message) {
+                        return;
+                    }
                 } else {
                     unreachable!();
                 }
@@ -509,7 +529,9 @@ fn start_location_stats_thread(
                                 lon,
                                 elev_m,
                             };
-                            climo_update_requests.send(message);
+                            if let Err(_) = climo_update_requests.send(message) {
+                                return;
+                            }
                         } else {
                             let message = ErrorMessage::DataError(
                                 site,
@@ -517,12 +539,16 @@ fn start_location_stats_thread(
                                 valid_time,
                                 "Missing location information.".to_string(),
                             );
-                            err_snd.send(message);
+                            if let Err(_) = err_snd.send(message) {
+                                return;
+                            }
                         }
                     }
 
                     let message = PipelineMessage::Completed { num };
-                    completed_notification.send(message);
+                    if let Err(_) = completed_notification.send(message) {
+                        return;
+                    }
                 } else {
                     unreachable!();
                 }
@@ -550,7 +576,9 @@ fn start_parse_err_handler(
                 }
 
                 // Forward message to the regular error channel.
-                err_snd.send(msg);
+                if let Err(_) = err_snd.send(msg) {
+                    return;
+                }
             }
         })?;
 
@@ -613,7 +641,9 @@ fn start_stats_thread(
 
                 if let Err(err) = res {
                     let message = ErrorMessage::Critical(err.to_string());
-                    err_snd.send(message);
+                    if let Err(_) = err_snd.send(message) {
+                        return;
+                    }
                     return;
                 }
             }

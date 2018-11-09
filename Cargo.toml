@@ -7,7 +7,7 @@ authors = ["Ryan <rnleach@users.noreply.github.com>"]
 bufkit-data = "0.7"
 chrono = "0.4.2"
 clap = { version = "2.32.0", features = ["wrap_help"]}
-crossbeam-channel = "0.2.5"
+crossbeam-channel = "0.3.0"
 csv = "1.0.2"
 dirs = "1.0"
 itertools = "0.7.8"
