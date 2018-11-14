@@ -81,19 +81,59 @@ impl ClimoDB {
             NO_PARAMS,
         )?;
 
+        conn.execute("PRAGMA cache_size=100000", NO_PARAMS)?;
+
         Ok(ClimoDB { conn })
     }
 }
 
-/// The struct creates and caches several prepared statements.
-pub struct ClimoDBInterface<'a> {
-    add_location_query: Statement<'a>,
-    add_fire_data_query: Statement<'a>,
-    check_exists_query: Statement<'a>,
+#[derive(Clone, Debug)]
+pub enum StatsRecord {
+    Fire {
+        site: Site,
+        model: Model,
+        valid_time: NaiveDateTime,
+        hns_low: i32,
+        hns_mid: i32,
+        hns_high: i32,
+        hdw: i32,
+        conv_t_def: Option<f64>,
+        dry_cape: Option<i32>,
+        wet_cape: Option<i32>,
+        cape_ratio: Option<f64>,
+        ccl_agl_m: Option<i32>,
+        el_asl_m: Option<i32>,
+        dcape: Option<i32>,
+    },
+    Location {
+        site: Site,
+        model: Model,
+        valid_time: NaiveDateTime,
+        lat: f64,
+        lon: f64,
+        elev_m: f64,
+    },
 }
 
-impl<'a> ClimoDBInterface<'a> {
-    pub fn initialize(climo_db: &'a ClimoDB) -> Result<Self, Box<dyn Error>> {
+#[derive(Clone, Debug, Hash)]
+struct StatsRecordKey<'a> {
+    site_id: &'a str,
+    model: Model,
+    valid_time: NaiveDateTime,
+}
+
+/// The struct creates and caches several prepared statements.
+pub struct ClimoDBInterface<'a, 'b: 'a> {
+    climo_db: &'b ClimoDB,
+    add_location_query: Statement<'a>,
+    add_fire_data_query: Statement<'a>,
+    init_times_query: Statement<'a>,
+    write_buffer: Vec<StatsRecord>,
+}
+
+impl<'a, 'b> ClimoDBInterface<'a, 'b> {
+    const BUFSIZE: usize = 2048;
+    pub fn initialize(climo_db: &'b ClimoDB) -> Result<Self, Box<dyn Error>> {
         let conn = &climo_db.conn;
         let add_location_query = conn.prepare(
             "
@@ -114,106 +154,137 @@ impl<'a> ClimoDBInterface<'a> {
             ",
         )?;
 
-        let check_exists_query = conn.prepare(
+        let init_times_query = conn.prepare(
             "
-                SELECT COUNT(*) FROM 
+                SELECT valid_time FROM 
                 fire 
-                WHERE site = ?1 AND MODEL = ?2 AND valid_time = ?3
+                WHERE site = ?1 AND MODEL = ?2
             ",
         )?;
 
         Ok(ClimoDBInterface {
+            climo_db,
             add_location_query,
             add_fire_data_query,
-            check_exists_query,
+            init_times_query,
+            write_buffer: Vec::with_capacity(ClimoDBInterface::BUFSIZE),
         })
     }
 
     #[inline]
-    pub fn exists(
+    pub fn valid_times_for(
         &mut self,
         site: &Site,
         model: Model,
-        valid_time: NaiveDateTime,
-    ) -> Result<bool, Box<dyn Error>> {
+    ) -> Result<Vec<NaiveDateTime>, Box<dyn Error>> {
         let model_str = model.as_static();
 
-        let num: i32 = self.check_exists_query.query_row(
-            &[&site.id as &ToSql, &model_str, &valid_time as &ToSql],
-            |row| row.get_checked(0),
-        )??;
+        let valid_times: Result<Vec<NaiveDateTime>, _> = self
+            .init_times_query
+            .query_map(&[&site.id as &ToSql, &model_str], |row| row.get(0))?
+            .collect();
+        let valid_times = valid_times?;
 
-        Ok(num > 0)
+        Ok(valid_times)
     }
 
     #[inline]
-    pub fn add_location(
-        &mut self,
-        site: &Site,
-        model: Model,
-        valid_time: NaiveDateTime,
-        lat: f64,
-        lon: f64,
-        elev_m: f64,
-    ) -> Result<(), Box<dyn Error>> {
-        self.add_location_query.execute(&[
-            &site.id as &ToSql,
-            &model.as_static(),
-            &valid_time as &ToSql,
-            &lat as &ToSql,
-            &lon as &ToSql,
-            &elev_m as &ToSql,
-        ])?;
+    pub fn add(&mut self, record: StatsRecord) -> Result<(), Box<dyn Error>> {
+        debug_assert!(self.write_buffer.len() <= ClimoDBInterface::BUFSIZE);
+        self.write_buffer.push(record);
+
+        if self.write_buffer.len() == ClimoDBInterface::BUFSIZE {
+            self.flush()?;
+        }
 
         Ok(())
     }
 
     #[inline]
-    pub fn add_fire(
-        &mut self,
-        site: &Site,
-        model: Model,
-        valid_time: NaiveDateTime,
-        hns_high_mid_low: (i32, i32, i32),
-        hdw: i32,
-        conv_t_def_c: Option<f64>,
-        dry_cape: Option<i32>,
-        wet_cape: Option<i32>,
-        cape_ratio: Option<f64>,
-        ccl_agl_m: Option<i32>,
-        el_asl_m: Option<i32>,
-        dcape: Option<i32>,
-    ) -> Result<(), Box<dyn Error>> {
-        let lcl_time = site
-            .time_zone
-            .unwrap_or_else(|| FixedOffset::west(0))
-            .from_utc_datetime(&valid_time);
-        let year_lcl = lcl_time.year();
-        let month_lcl = lcl_time.month();
-        let day_lcl = lcl_time.day();
-        let hour_lcl = lcl_time.hour();
+    fn flush(&mut self) -> Result<(), Box<dyn Error>> {
+        use self::StatsRecord::*;
 
-        self.add_fire_data_query.execute(&[
-            &site.id as &ToSql,
-            &model.as_static(),
-            &valid_time as &ToSql,
-            &year_lcl as &ToSql,
-            &month_lcl as &ToSql,
-            &day_lcl as &ToSql,
-            &hour_lcl as &ToSql,
-            &hns_high_mid_low.0 as &ToSql,
-            &hns_high_mid_low.1 as &ToSql,
-            &hns_high_mid_low.2 as &ToSql,
-            &hdw as &ToSql,
-            &conv_t_def_c as &ToSql,
-            &dry_cape as &ToSql,
-            &wet_cape as &ToSql,
-            &cape_ratio as &ToSql,
-            &ccl_agl_m as &ToSql,
-            &el_asl_m as &ToSql,
-            &dcape as &ToSql,
-        ])?;
+        self.climo_db.conn.execute("BEGIN TRANSACTION", NO_PARAMS)?;
+
+        for record in self.write_buffer.drain(..) {
+            match record {
+                Fire {
+                    site,
+                    model,
+                    valid_time,
+                    hns_low,
+                    hns_mid,
+                    hns_high,
+                    hdw,
+                    conv_t_def,
+                    dry_cape,
+                    wet_cape,
+                    cape_ratio,
+                    ccl_agl_m,
+                    el_asl_m,
+                    dcape,
+                } => {
+                    let lcl_time = site
+                        .time_zone
+                        .unwrap_or_else(|| FixedOffset::west(0))
+                        .from_utc_datetime(&valid_time);
+                    let year_lcl = lcl_time.year();
+                    let month_lcl = lcl_time.month();
+                    let day_lcl = lcl_time.day();
+                    let hour_lcl = lcl_time.hour();
+
+                    self.add_fire_data_query
+                        .execute(&[
+                            &site.id as &ToSql,
+                            &model.as_static(),
+                            &valid_time as &ToSql,
+                            &year_lcl as &ToSql,
+                            &month_lcl as &ToSql,
+                            &day_lcl as &ToSql,
+                            &hour_lcl as &ToSql,
+                            &hns_high as &ToSql,
+                            &hns_mid as &ToSql,
+                            &hns_low as &ToSql,
+                            &hdw as &ToSql,
+                            &conv_t_def as &ToSql,
+                            &dry_cape as &ToSql,
+                            &wet_cape as &ToSql,
+                            &cape_ratio as &ToSql,
+                            &ccl_agl_m as &ToSql,
+                            &el_asl_m as &ToSql,
+                            &dcape as &ToSql,
+                        ]).map(|_| ())?
+                }
+                Location {
+                    site,
+                    model,
+                    valid_time,
+                    lat,
+                    lon,
+                    elev_m,
+                } => self
+                    .add_location_query
+                    .execute(&[
+                        &site.id as &ToSql,
+                        &model.as_static(),
+                        &valid_time as &ToSql,
+                        &lat as &ToSql,
+                        &lon as &ToSql,
+                        &elev_m as &ToSql,
+                    ]).map(|_| ())?,
+            }
+        }
+
+        self.climo_db
+            .conn
+            .execute("COMMIT TRANSACTION", NO_PARAMS)?;
 
         Ok(())
+    }
+}
+
+impl<'a, 'b> Drop for ClimoDBInterface<'a, 'b> {
+    fn drop(&mut self) {
+        self.flush().unwrap()
     }
 }
