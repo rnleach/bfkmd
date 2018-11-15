@@ -460,7 +460,7 @@ fn start_location_stats_thread(
                         .send(message)
                         .map_err(|err| err.to_string())?;
                 } else {
-                    unreachable!();
+                    completed_notification.send(msg).map_err(|err| err.to_string())?;
                 }
             }
             Ok(())
