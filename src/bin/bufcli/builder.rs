@@ -16,6 +16,7 @@ use std::error::Error;
 use std::iter::FromIterator;
 use std::path::Path;
 use std::thread::{self, JoinHandle};
+use threadpool;
 
 const CAPACITY: usize = 16;
 
@@ -248,7 +249,7 @@ fn start_parser_thread(
                             .unwrap_or(false)
                     }) {
                         if let Some(valid_time) = anal.sounding().get_valid_time() {
-                            let message = PipelineMessage::Fire {
+                            let message = PipelineMessage::CliData {
                                 num,
                                 site: site.clone(),
                                 model,
@@ -284,152 +285,181 @@ fn start_cli_stats_thread(
     climo_update_requests: Sender<StatsRecord>,
 ) -> Result<JoinHandle<Result<(), String>>, Box<dyn Error>> {
     let jh = thread::Builder::new()
-        .name("FireStatsCalc".to_string())
+        .name("CliDataStatsCalc".to_string())
         .spawn(move || -> Result<(), String> {
-            for msg in cli_requests {
-                if let PipelineMessage::Fire {
-                    num,
-                    site,
-                    model,
-                    valid_time,
-                    anal,
-                } = msg
-                {
-                    {
-                        let snd = anal.sounding();
+            const POOL_SIZE: usize = 2;
 
-                        let hns_low = haines_low(snd).unwrap_or(0.0) as i32;
-                        let hns_mid = haines_mid(snd).unwrap_or(0.0) as i32;
-                        let hns_high = haines_high(snd).unwrap_or(0.0) as i32;
+            let pool = threadpool::Builder::new()
+                .num_threads(POOL_SIZE)
+                .thread_name("CliDataStatsCalc_".to_string())
+                .build();
 
-                        let hdw = match hot_dry_windy(snd) {
-                            Ok(hdw) => hdw as i32,
-                            Err(err) => {
-                                let message = PipelineMessage::DataError {
-                                    num,
-                                    site,
-                                    model,
-                                    valid_time,
-                                    msg: err.to_string(),
-                                };
-                                location_requests
-                                    .send(message)
-                                    .map_err(|err| err.to_string())?;
-                                continue;
-                            }
-                        };
+            for _ in 0..POOL_SIZE {
+                let local_cli_requests = cli_requests.clone();
+                let local_location_requests = location_requests.clone();
+                let local_update_requests = climo_update_requests.clone();
 
-                        let ml_parcel: Option<Parcel> = mixed_layer_parcel(snd).ok();
-
-                        let (mlcape, mlcin, ml_sfc_t, ml_sfc_rh) = {
-                            if let Some(parcel) = ml_parcel {
-                                let ml_sfc_t = Some(parcel.temperature as i32);
-                                let ml_sfc_rh = rh(parcel.temperature, parcel.dew_point)
-                                    .ok()
-                                    .map(|rh| (rh * 100.0) as i32);
-
-                                if let Some(anal) = lift_parcel(parcel, snd).ok() {
-                                    let cape =
-                                        anal.get_index(ParcelIndex::CAPE).map(|cape| cape as i32);
-                                    let cin =
-                                        anal.get_index(ParcelIndex::CIN).map(|cin| cin as i32);
-                                    (cape, cin, ml_sfc_t, ml_sfc_rh)
-                                } else {
-                                    (None, None, ml_sfc_t, ml_sfc_rh)
-                                }
-                            } else {
-                                (None, None, None, None)
-                            }
-                        };
-
-                        let (conv_t_def, dry_cape, wet_cape, cape_ratio, ccl_agl_m, el_asl_m) = {
-                            if let Some(parcel) = convective_parcel(snd).ok() {
-                                let conv_t_def =
-                                    ml_parcel.map(|ml_pcl| parcel.temperature - ml_pcl.temperature);
-
-                                let parcel_anal = lift_parcel(parcel, snd).ok();
-
-                                let (dry, wet) = parcel_anal
-                                    .as_ref()
-                                    .and_then(|profile_anal| {
-                                        partition_cape(&profile_anal)
-                                            .ok()
-                                            .map(|(dry, wet)| (Some(dry), Some(wet)))
-                                    }).unwrap_or((None, None));
-
-                                let cape_ratio = dry.and_then(|dry| wet.map(|wet| wet / dry));
-                                let dry = dry.map(|dry| dry.round() as i32);
-                                let wet = wet.map(|wet| wet.round() as i32);
-
-                                let (ccl_agl_m, el_asl_m) = parcel_anal
-                                    .as_ref()
-                                    .and_then(|profile_anal| {
-                                        let ccl = profile_anal
-                                            .get_index(ParcelIndex::LCLHeightAGL)
-                                            .map(|ccl| ccl.round() as i32);
-                                        let el = profile_anal
-                                            .get_index(ParcelIndex::ELHeightASL)
-                                            .map(|el| el.round() as i32);
-
-                                        Some((ccl, el))
-                                    }).unwrap_or((None, None));
-
-                                (conv_t_def, dry, wet, cape_ratio, ccl_agl_m, el_asl_m)
-                            } else {
-                                (None, None, None, None, None, None)
-                            }
-                        };
-
-                        let dcp = dcape(snd).ok().map(|(_, dcp, _)| dcp.round() as i32);
-
-                        let sfc_wspd_kt = snd
-                            .get_surface_value(Surface::WindSpeed)
-                            .map(|spd| spd as i32);
-                        let sfc_wdir = snd
-                            .get_surface_value(Surface::WindDirection)
-                            .map(|dir| dir as i32);
-
-                        let message = StatsRecord::Fire {
-                            site: site.clone(),
+                pool.execute(move || {
+                    for msg in local_cli_requests {
+                        if let PipelineMessage::CliData {
+                            num,
+                            site,
                             model,
                             valid_time,
-                            hns_low,
-                            hns_mid,
-                            hns_high,
-                            hdw,
-                            conv_t_def,
-                            dry_cape,
-                            wet_cape,
-                            cape_ratio,
-                            ccl_agl_m,
-                            el_asl_m,
-                            mlcape,
-                            mlcin,
-                            dcape: dcp,
-                            ml_sfc_t,
-                            ml_sfc_rh,
-                            sfc_wspd_kt,
-                            sfc_wdir,
-                        };
-                        climo_update_requests
-                            .send(message)
-                            .map_err(|err| err.to_string())?;
-                    }
+                            anal,
+                        } = msg
+                        {
+                            {
+                                let snd = anal.sounding();
 
-                    let message = PipelineMessage::Location {
-                        num,
-                        site,
-                        model,
-                        valid_time,
-                        anal,
-                    };
-                    location_requests
-                        .send(message)
-                        .map_err(|err| err.to_string())?;
-                } else {
-                    location_requests.send(msg).map_err(|err| err.to_string())?;
-                }
+                                let hns_low = haines_low(snd).unwrap_or(0.0) as i32;
+                                let hns_mid = haines_mid(snd).unwrap_or(0.0) as i32;
+                                let hns_high = haines_high(snd).unwrap_or(0.0) as i32;
+
+                                let hdw = match hot_dry_windy(snd) {
+                                    Ok(hdw) => hdw as i32,
+                                    Err(err) => {
+                                        let message = PipelineMessage::DataError {
+                                            num,
+                                            site,
+                                            model,
+                                            valid_time,
+                                            msg: err.to_string(),
+                                        };
+                                        local_location_requests
+                                            .send(message)
+                                            .expect("Error sending message.");
+                                        continue;
+                                    }
+                                };
+
+                                let ml_parcel: Option<Parcel> = mixed_layer_parcel(snd).ok();
+
+                                let (mlcape, mlcin, ml_sfc_t, ml_sfc_rh) = {
+                                    if let Some(parcel) = ml_parcel {
+                                        let ml_sfc_t = Some(parcel.temperature as i32);
+                                        let ml_sfc_rh = rh(parcel.temperature, parcel.dew_point)
+                                            .ok()
+                                            .map(|rh| (rh * 100.0) as i32);
+
+                                        if let Some(anal) = lift_parcel(parcel, snd).ok() {
+                                            let cape = anal
+                                                .get_index(ParcelIndex::CAPE)
+                                                .map(|cape| cape as i32);
+                                            let cin = anal
+                                                .get_index(ParcelIndex::CIN)
+                                                .map(|cin| cin as i32);
+                                            (cape, cin, ml_sfc_t, ml_sfc_rh)
+                                        } else {
+                                            (None, None, ml_sfc_t, ml_sfc_rh)
+                                        }
+                                    } else {
+                                        (None, None, None, None)
+                                    }
+                                };
+
+                                let (
+                                    conv_t_def,
+                                    dry_cape,
+                                    wet_cape,
+                                    cape_ratio,
+                                    ccl_agl_m,
+                                    el_asl_m,
+                                ) = {
+                                    if let Some(parcel) = convective_parcel(snd).ok() {
+                                        let conv_t_def = ml_parcel
+                                            .map(|ml_pcl| parcel.temperature - ml_pcl.temperature);
+
+                                        let parcel_anal = lift_parcel(parcel, snd).ok();
+
+                                        let (dry, wet) = parcel_anal
+                                            .as_ref()
+                                            .and_then(|profile_anal| {
+                                                partition_cape(&profile_anal)
+                                                    .ok()
+                                                    .map(|(dry, wet)| (Some(dry), Some(wet)))
+                                            }).unwrap_or((None, None));
+
+                                        let cape_ratio =
+                                            dry.and_then(|dry| wet.map(|wet| wet / dry));
+                                        let dry = dry.map(|dry| dry.round() as i32);
+                                        let wet = wet.map(|wet| wet.round() as i32);
+
+                                        let (ccl_agl_m, el_asl_m) = parcel_anal
+                                            .as_ref()
+                                            .and_then(|profile_anal| {
+                                                let ccl = profile_anal
+                                                    .get_index(ParcelIndex::LCLHeightAGL)
+                                                    .map(|ccl| ccl.round() as i32);
+                                                let el = profile_anal
+                                                    .get_index(ParcelIndex::ELHeightASL)
+                                                    .map(|el| el.round() as i32);
+
+                                                Some((ccl, el))
+                                            }).unwrap_or((None, None));
+
+                                        (conv_t_def, dry, wet, cape_ratio, ccl_agl_m, el_asl_m)
+                                    } else {
+                                        (None, None, None, None, None, None)
+                                    }
+                                };
+
+                                let dcp = dcape(snd).ok().map(|(_, dcp, _)| dcp.round() as i32);
+
+                                let sfc_wspd_kt = snd
+                                    .get_surface_value(Surface::WindSpeed)
+                                    .map(|spd| spd as i32);
+                                let sfc_wdir = snd
+                                    .get_surface_value(Surface::WindDirection)
+                                    .map(|dir| dir as i32);
+
+                                let message = StatsRecord::CliData {
+                                    site: site.clone(),
+                                    model,
+                                    valid_time,
+                                    hns_low,
+                                    hns_mid,
+                                    hns_high,
+                                    hdw,
+                                    conv_t_def,
+                                    dry_cape,
+                                    wet_cape,
+                                    cape_ratio,
+                                    ccl_agl_m,
+                                    el_asl_m,
+                                    mlcape,
+                                    mlcin,
+                                    dcape: dcp,
+                                    ml_sfc_t,
+                                    ml_sfc_rh,
+                                    sfc_wspd_kt,
+                                    sfc_wdir,
+                                };
+                                local_update_requests
+                                    .send(message)
+                                    .expect("Error sending message.");
+                            }
+
+                            let message = PipelineMessage::Location {
+                                num,
+                                site,
+                                model,
+                                valid_time,
+                                anal,
+                            };
+                            local_location_requests
+                                .send(message)
+                                .expect("Error sending message.");
+                        } else {
+                            local_location_requests
+                                .send(msg)
+                                .expect("Error sending message.");
+                        }
+                    }
+                });
             }
+
+            pool.join();
 
             Ok(())
         })?;
@@ -546,7 +576,7 @@ enum PipelineMessage {
         init_time: NaiveDateTime,
         data: String,
     },
-    Fire {
+    CliData {
         num: usize,
         site: Site,
         model: Model,

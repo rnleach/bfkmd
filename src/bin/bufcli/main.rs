@@ -19,6 +19,7 @@ extern crate sounding_analysis;
 extern crate sounding_base;
 extern crate sounding_bufkit;
 extern crate strum;
+extern crate threadpool;
 
 mod builder;
 mod climo_db;

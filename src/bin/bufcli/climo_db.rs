@@ -100,7 +100,7 @@ impl ClimoDB {
 
 #[derive(Clone, Debug)]
 pub enum StatsRecord {
-    Fire {
+    CliData {
         site: Site,
         model: Model,
         valid_time: NaiveDateTime,
@@ -230,7 +230,7 @@ impl<'a, 'b> ClimoDBInterface<'a, 'b> {
 
         for record in self.write_buffer.drain(..) {
             match record {
-                Fire {
+                CliData {
                     site,
                     model,
                     valid_time,
