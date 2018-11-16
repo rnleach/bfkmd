@@ -54,17 +54,19 @@ impl ClimoDB {
         )?;
 
         //
-        // Create the the fire climate table
+        // Create the the climate table
         //
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS fire (
+            "CREATE TABLE IF NOT EXISTS cli (
                 site         TEXT NOT NULL,
                 model        TEXT NOT NULL,
+
                 valid_time   TEXT NOT NULL,
                 year_lcl     INT  NOT NULL,
                 month_lcl    INT  NOT NULL,
                 day_lcl      INT  NOT NULL,
                 hour_lcl     INT  NOT NULL,
+
                 haines_high  INT,
                 haines_mid   INT,
                 haines_low   INT,
@@ -75,7 +77,16 @@ impl ClimoDB {
                 cape_ratio   REAL,
                 ccl_agl_m    INT,
                 el_asl_m     INT,
+
+                mlcape       INT,
+                mlcin        INT,
                 dcape        INT,
+
+                ml_sfc_t_c   INT,
+                ml_sfc_rh    INT,
+                sfc_wspd_kt  INT,
+                sfc_wdir     INT,
+
                 PRIMARY KEY (site, valid_time, model, year_lcl, month_lcl, day_lcl, hour_lcl)
             )",
             NO_PARAMS,
@@ -93,9 +104,10 @@ pub enum StatsRecord {
         site: Site,
         model: Model,
         valid_time: NaiveDateTime,
-        hns_low: i32,
-        hns_mid: i32,
+
         hns_high: i32,
+        hns_mid: i32,
+        hns_low: i32,
         hdw: i32,
         conv_t_def: Option<f64>,
         dry_cape: Option<i32>,
@@ -103,7 +115,15 @@ pub enum StatsRecord {
         cape_ratio: Option<f64>,
         ccl_agl_m: Option<i32>,
         el_asl_m: Option<i32>,
+
+        mlcape: Option<i32>,
+        mlcin: Option<i32>,
         dcape: Option<i32>,
+
+        ml_sfc_t: Option<i32>,
+        ml_sfc_rh: Option<i32>,
+        sfc_wspd_kt: Option<i32>,
+        sfc_wdir: Option<i32>,
     },
     Location {
         site: Site,
@@ -126,7 +146,7 @@ struct StatsRecordKey<'a> {
 pub struct ClimoDBInterface<'a, 'b: 'a> {
     climo_db: &'b ClimoDB,
     add_location_query: Statement<'a>,
-    add_fire_data_query: Statement<'a>,
+    add_data_query: Statement<'a>,
     init_times_query: Statement<'a>,
     write_buffer: Vec<StatsRecord>,
 }
@@ -143,21 +163,23 @@ impl<'a, 'b> ClimoDBInterface<'a, 'b> {
             ",
         )?;
 
-        let add_fire_data_query = conn.prepare(
+        let add_data_query = conn.prepare(
             "
                 INSERT OR REPLACE INTO
-                fire (site, model, valid_time, year_lcl, month_lcl, day_lcl, hour_lcl, 
+                cli (site, model, valid_time, year_lcl, month_lcl, day_lcl, hour_lcl, 
                     haines_high, haines_mid, haines_low, hdw, conv_t_def_c, dry_cape, wet_cape,
-                    cape_ratio, ccl_agl_m, el_asl_m, dcape)
+                    cape_ratio, ccl_agl_m, el_asl_m, mlcape, mlcin, dcape, ml_sfc_t_c, ml_sfc_rh,
+                    sfc_wspd_kt, sfc_wdir)
                 VALUES 
-                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+                 ?19, ?20, ?21, ?22, ?23, ?24)
             ",
         )?;
 
         let init_times_query = conn.prepare(
             "
                 SELECT valid_time FROM 
-                fire 
+                cli
                 WHERE site = ?1 AND MODEL = ?2
             ",
         )?;
@@ -165,7 +187,7 @@ impl<'a, 'b> ClimoDBInterface<'a, 'b> {
         Ok(ClimoDBInterface {
             climo_db,
             add_location_query,
-            add_fire_data_query,
+            add_data_query,
             init_times_query,
             write_buffer: Vec::with_capacity(ClimoDBInterface::BUFSIZE),
         })
@@ -222,7 +244,13 @@ impl<'a, 'b> ClimoDBInterface<'a, 'b> {
                     cape_ratio,
                     ccl_agl_m,
                     el_asl_m,
+                    mlcape,
+                    mlcin,
                     dcape,
+                    ml_sfc_t,
+                    ml_sfc_rh,
+                    sfc_wspd_kt,
+                    sfc_wdir,
                 } => {
                     let lcl_time = site
                         .time_zone
@@ -233,7 +261,7 @@ impl<'a, 'b> ClimoDBInterface<'a, 'b> {
                     let day_lcl = lcl_time.day();
                     let hour_lcl = lcl_time.hour();
 
-                    self.add_fire_data_query
+                    self.add_data_query
                         .execute(&[
                             &site.id as &ToSql,
                             &model.as_static(),
@@ -252,7 +280,13 @@ impl<'a, 'b> ClimoDBInterface<'a, 'b> {
                             &cape_ratio as &ToSql,
                             &ccl_agl_m as &ToSql,
                             &el_asl_m as &ToSql,
+                            &mlcape as &ToSql,
+                            &mlcin as &ToSql,
                             &dcape as &ToSql,
+                            &ml_sfc_t as &ToSql,
+                            &ml_sfc_rh as &ToSql,
+                            &sfc_wspd_kt as &ToSql,
+                            &sfc_wdir as &ToSql,
                         ]).map(|_| ())?
                 }
                 Location {

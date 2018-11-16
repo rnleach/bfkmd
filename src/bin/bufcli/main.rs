@@ -12,9 +12,11 @@ extern crate csv;
 extern crate dirs;
 #[macro_use]
 extern crate itertools;
+extern crate metfor;
 extern crate pbr;
 extern crate rusqlite;
 extern crate sounding_analysis;
+extern crate sounding_base;
 extern crate sounding_bufkit;
 extern crate strum;
 

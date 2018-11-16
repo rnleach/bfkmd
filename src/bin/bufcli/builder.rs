@@ -3,11 +3,13 @@ use bufkit_data::{Archive, BufkitDataErr, Model, Site};
 use chrono::NaiveDateTime;
 use climo_db::{ClimoDB, ClimoDBInterface};
 use crossbeam_channel::{self as channel, Receiver, Sender};
+use metfor::rh;
 use pbr::ProgressBar;
 use sounding_analysis::{
     convective_parcel, dcape, haines_high, haines_low, haines_mid, hot_dry_windy, lift_parcel,
-    mixed_layer_parcel, partition_cape, Analysis, ParcelIndex,
+    mixed_layer_parcel, partition_cape, Analysis, Parcel, ParcelIndex,
 };
+use sounding_base::Surface;
 use sounding_bufkit::BufkitData;
 use std::collections::HashSet;
 use std::error::Error;
@@ -25,7 +27,7 @@ pub(crate) fn build_climo(args: CmdLineArgs) -> Result<(), Box<dyn Error>> {
     // Channels for the main pipeline
     let (entry_point_snd, load_requests_rcv) = channel::bounded::<PipelineMessage>(CAPACITY);
     let (parse_requests_snd, parse_requests_rcv) = channel::bounded::<PipelineMessage>(CAPACITY);
-    let (fire_requests_snd, fire_requests_rcv) = channel::bounded::<PipelineMessage>(CAPACITY);
+    let (cli_requests_snd, cli_requests_rcv) = channel::bounded::<PipelineMessage>(CAPACITY);
     let (loc_requests_snd, loc_requests_rcv) = channel::bounded::<PipelineMessage>(CAPACITY);
     let (comp_notify_snd, comp_notify_rcv) = channel::bounded::<PipelineMessage>(CAPACITY);
 
@@ -36,10 +38,10 @@ pub(crate) fn build_climo(args: CmdLineArgs) -> Result<(), Box<dyn Error>> {
     let (ep_jh, total_num) = start_entry_point_thread(args, entry_point_snd)?;
     let load_jh = start_load_thread(root, load_requests_rcv, parse_requests_snd)?;
 
-    let parser_jh = start_parser_thread(parse_requests_rcv, fire_requests_snd)?;
+    let parser_jh = start_parser_thread(parse_requests_rcv, cli_requests_snd)?;
 
-    let fire_stats_jh =
-        start_fire_stats_thread(fire_requests_rcv, loc_requests_snd, stats_snd.clone())?;
+    let cli_stats_jh =
+        start_cli_stats_thread(cli_requests_rcv, loc_requests_snd, stats_snd.clone())?;
 
     let loc_stats_jh = start_location_stats_thread(loc_requests_rcv, comp_notify_snd, stats_snd)?;
 
@@ -83,7 +85,7 @@ pub(crate) fn build_climo(args: CmdLineArgs) -> Result<(), Box<dyn Error>> {
     ep_jh.join().expect("Error joining thread.")?;
     load_jh.join().expect("Error joining thread.")?;
     parser_jh.join().expect("Error joining thread.")?;
-    fire_stats_jh.join().expect("Error joining thread.")?;
+    cli_stats_jh.join().expect("Error joining thread.")?;
     loc_stats_jh.join().expect("Error joining thread.")?;
     stats_jh.join().expect("Error joining thread.")?;
     println!("Done.");
@@ -209,7 +211,7 @@ fn start_load_thread(
 
 fn start_parser_thread(
     parse_requests: Receiver<PipelineMessage>,
-    fire_requests: Sender<PipelineMessage>,
+    cli_requests: Sender<PipelineMessage>,
 ) -> Result<JoinHandle<Result<(), String>>, Box<dyn Error>> {
     let jh = thread::Builder::new()
         .name("SoundingParser".to_string())
@@ -233,7 +235,7 @@ fn start_parser_thread(
                                 valid_time: init_time,
                                 msg: err.to_string(),
                             };
-                            fire_requests.send(message).map_err(|err| err.to_string())?;
+                            cli_requests.send(message).map_err(|err| err.to_string())?;
                             continue;
                         }
                     };
@@ -253,7 +255,7 @@ fn start_parser_thread(
                                 valid_time,
                                 anal,
                             };
-                            fire_requests.send(message).map_err(|err| err.to_string())?;
+                            cli_requests.send(message).map_err(|err| err.to_string())?;
                         } else {
                             let message = PipelineMessage::DataError {
                                 num,
@@ -262,11 +264,11 @@ fn start_parser_thread(
                                 valid_time: init_time,
                                 msg: "No valid time".to_string(),
                             };
-                            fire_requests.send(message).map_err(|err| err.to_string())?;
+                            cli_requests.send(message).map_err(|err| err.to_string())?;
                         }
                     }
                 } else {
-                    fire_requests.send(msg).map_err(|err| err.to_string())?;
+                    cli_requests.send(msg).map_err(|err| err.to_string())?;
                 }
             }
 
@@ -276,15 +278,15 @@ fn start_parser_thread(
     Ok(jh)
 }
 
-fn start_fire_stats_thread(
-    fire_requests: Receiver<PipelineMessage>,
+fn start_cli_stats_thread(
+    cli_requests: Receiver<PipelineMessage>,
     location_requests: Sender<PipelineMessage>,
     climo_update_requests: Sender<StatsRecord>,
 ) -> Result<JoinHandle<Result<(), String>>, Box<dyn Error>> {
     let jh = thread::Builder::new()
         .name("FireStatsCalc".to_string())
         .spawn(move || -> Result<(), String> {
-            for msg in fire_requests {
+            for msg in cli_requests {
                 if let PipelineMessage::Fire {
                     num,
                     site,
@@ -317,11 +319,33 @@ fn start_fire_stats_thread(
                             }
                         };
 
+                        let ml_parcel: Option<Parcel> = mixed_layer_parcel(snd).ok();
+
+                        let (mlcape, mlcin, ml_sfc_t, ml_sfc_rh) = {
+                            if let Some(parcel) = ml_parcel {
+                                let ml_sfc_t = Some(parcel.temperature as i32);
+                                let ml_sfc_rh = rh(parcel.temperature, parcel.dew_point)
+                                    .ok()
+                                    .map(|rh| (rh * 100.0) as i32);
+
+                                if let Some(anal) = lift_parcel(parcel, snd).ok() {
+                                    let cape =
+                                        anal.get_index(ParcelIndex::CAPE).map(|cape| cape as i32);
+                                    let cin =
+                                        anal.get_index(ParcelIndex::CIN).map(|cin| cin as i32);
+                                    (cape, cin, ml_sfc_t, ml_sfc_rh)
+                                } else {
+                                    (None, None, ml_sfc_t, ml_sfc_rh)
+                                }
+                            } else {
+                                (None, None, None, None)
+                            }
+                        };
+
                         let (conv_t_def, dry_cape, wet_cape, cape_ratio, ccl_agl_m, el_asl_m) = {
                             if let Some(parcel) = convective_parcel(snd).ok() {
-                                let conv_t_def = mixed_layer_parcel(snd)
-                                    .ok()
-                                    .map(|ml_pcl| parcel.temperature - ml_pcl.temperature);
+                                let conv_t_def =
+                                    ml_parcel.map(|ml_pcl| parcel.temperature - ml_pcl.temperature);
 
                                 let parcel_anal = lift_parcel(parcel, snd).ok();
 
@@ -358,6 +382,13 @@ fn start_fire_stats_thread(
 
                         let dcp = dcape(snd).ok().map(|(_, dcp, _)| dcp.round() as i32);
 
+                        let sfc_wspd_kt = snd
+                            .get_surface_value(Surface::WindSpeed)
+                            .map(|spd| spd as i32);
+                        let sfc_wdir = snd
+                            .get_surface_value(Surface::WindDirection)
+                            .map(|dir| dir as i32);
+
                         let message = StatsRecord::Fire {
                             site: site.clone(),
                             model,
@@ -372,7 +403,13 @@ fn start_fire_stats_thread(
                             cape_ratio,
                             ccl_agl_m,
                             el_asl_m,
+                            mlcape,
+                            mlcin,
                             dcape: dcp,
+                            ml_sfc_t,
+                            ml_sfc_rh,
+                            sfc_wspd_kt,
+                            sfc_wdir,
                         };
                         climo_update_requests
                             .send(message)
@@ -460,7 +497,9 @@ fn start_location_stats_thread(
                         .send(message)
                         .map_err(|err| err.to_string())?;
                 } else {
-                    completed_notification.send(msg).map_err(|err| err.to_string())?;
+                    completed_notification
+                        .send(msg)
+                        .map_err(|err| err.to_string())?;
                 }
             }
             Ok(())
