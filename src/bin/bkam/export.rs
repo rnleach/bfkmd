@@ -65,7 +65,7 @@ pub fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error
 
         let save_path = target.join(arch.file_name(site, model, &init_time));
         let data = arch.retrieve(site, model, &init_time)?;
-        let mut f = File::create(save_path)?;
+        let f = File::create(save_path)?;
         let mut bw = BufWriter::new(f);
         bw.write_all(data.as_bytes())?;
     }

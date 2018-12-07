@@ -232,7 +232,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             MissingUrlDb::open_or_create_404_db(&root_clone2).map_err(|err| err.to_string())?;
 
         for (site, model, init_time, save_res) in print_rx {
-            use StepResult::*;
+            use crate::StepResult::*;
 
             match save_res {
                 URLNotFound(ref url) => {

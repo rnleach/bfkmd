@@ -285,7 +285,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .collect();
 
     if table_stats.is_empty() {
-        use TableStatArg::{HainesHigh, HainesLow, HainesMid, Hdw, MaxHdw};
+        use crate::TableStatArg::{HainesHigh, HainesLow, HainesMid, Hdw, MaxHdw};
         table_stats = vec![Hdw, MaxHdw, HainesLow, HainesMid, HainesHigh];
     }
 
@@ -297,7 +297,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .collect();
 
     if graph_stats.is_empty() {
-        use GraphStatArg::Hdw;
+        use crate::GraphStatArg::Hdw;
         graph_stats = vec![Hdw];
     }
 
@@ -394,14 +394,14 @@ fn calculate_stats(
 
         let cal_day = (valid_time - Duration::hours(12)).date(); // Daily stats from 12Z to 12Z
 
-        let mut graph_stats = model_stats
+        let graph_stats = model_stats
             .graph_stats
             .entry(valid_time)
             .or_insert_with(HashMap::new);
 
         // Build the graph stats
         for &graph_stat in g_stats {
-            use GraphStatArg::*;
+            use crate::GraphStatArg::*;
 
             let stat = match graph_stat {
                 Hdw => sounding_analysis::hot_dry_windy(sounding),
@@ -421,7 +421,7 @@ fn calculate_stats(
 
         // Build the daily stats
         for &table_stat in t_stats {
-            use TableStatArg::*;
+            use crate::TableStatArg::*;
 
             let zero_z = |old_val: (f64, u32), new_val: (f64, u32)| -> (f64, u32) {
                 if valid_time.hour() == 0 {
@@ -471,12 +471,12 @@ fn calculate_stats(
                 TableStatArg::None => unreachable!(),
             };
 
-            let mut table_stats = model_stats
+            let table_stats = model_stats
                 .table_stats
                 .entry(table_stat)
                 .or_insert_with(HashMap::new);
 
-            let mut day_entry = table_stats.entry(cal_day).or_insert((::std::f64::NAN, 12));
+            let day_entry = table_stats.entry(cal_day).or_insert((::std::f64::NAN, 12));
             let hour = valid_time.hour();
 
             *day_entry = selector(*day_entry, (stat, hour));
@@ -531,7 +531,7 @@ fn print_stats(
             .with_column("Date", &days);
 
         for &table_stat in t_stats {
-            use TableStatArg::*;
+            use crate::TableStatArg::*;
 
             let vals = match table_stats.get(&table_stat) {
                 Some(vals) => vals,
@@ -719,7 +719,7 @@ impl GraphStatArg {
     }
 
     fn default_max_y(self) -> f32 {
-        use GraphStatArg::*;
+        use crate::GraphStatArg::*;
 
         match self {
             Hdw => 700.0,

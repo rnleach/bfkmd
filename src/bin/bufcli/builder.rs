@@ -1,7 +1,7 @@
 use super::{climo_db::StatsRecord, CmdLineArgs};
 use bufkit_data::{Archive, BufkitDataErr, Model, Site};
 use chrono::NaiveDateTime;
-use climo_db::{ClimoDB, ClimoDBInterface};
+use crate::climo_db::{ClimoDB, ClimoDBInterface};
 use crossbeam_channel::{self as channel, Receiver, Sender};
 use metfor::rh;
 use pbr::ProgressBar;

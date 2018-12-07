@@ -3,8 +3,8 @@
 //
 // Public API
 //
-pub use table_printer::TablePrinter;
-pub use util::{bail, parse_date_string};
+pub use crate::table_printer::TablePrinter;
+pub use crate::util::{bail, parse_date_string};
 
 //
 // Internal only
