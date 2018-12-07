@@ -7,7 +7,6 @@ extern crate chrono;
 extern crate clap;
 extern crate csv;
 extern crate dirs;
-extern crate failure;
 extern crate sounding_analysis;
 extern crate sounding_base;
 extern crate sounding_bufkit;
@@ -21,10 +20,10 @@ use bufkit_data::{Archive, Model};
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use clap::{App, Arg};
 use dirs::home_dir;
-use failure::{Error, Fail};
 use sounding_base::Sounding;
 use sounding_bufkit::BufkitData;
 use std::collections::HashMap;
+use std::error::Error;
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -32,26 +31,21 @@ use strum::{AsStaticRef, IntoEnumIterator};
 use textplots::{Chart, Plot, Shape};
 
 fn main() {
-    if let Err(ref e) = run() {
+    if let Err(e) = run() {
         println!("error: {}", e);
 
-        let mut fail: &Fail = e.as_fail();
+        let mut err = &*e;
 
-        while let Some(cause) = fail.cause() {
+        while let Some(cause) = err.source() {
             println!("caused by: {}", cause);
-
-            if let Some(backtrace) = cause.backtrace() {
-                println!("backtrace: {}\n\n\n", backtrace);
-            }
-
-            fail = cause;
+            err = cause;
         }
 
         ::std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), Error> {
+fn run() -> Result<(), Box<dyn Error>> {
     let args = &parse_args()?;
 
     #[cfg(debug_assertions)]
@@ -63,12 +57,12 @@ fn run() -> Result<(), Error> {
 
     for site in &args.sites {
         for model in &args.models {
-            if !arch.models_for_site(site)?.contains(&model) {
+            if !arch.models(site)?.contains(&model) {
                 println!("No data in archive for {} at {}.", model.as_static(), site);
                 continue;
             }
 
-            let latest = vec![arch.get_most_recent_valid_time(site, *model)?];
+            let latest = vec![arch.most_recent_valid_time(site, *model)?];
 
             let init_times = if args.init_times.is_empty() {
                 &latest
@@ -97,7 +91,7 @@ fn run() -> Result<(), Error> {
     Ok(())
 }
 
-fn parse_args() -> Result<CmdLineArgs, Error> {
+fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
     let app = App::new("firebuf")
         .author("Ryan Leach <clumsycodemonkey@gmail.com>")
         .version(crate_version!())
@@ -109,7 +103,8 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                 .long("sites")
                 .takes_value(true)
                 .help("Site identifiers (e.g. kord, katl, smn)."),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("models")
                 .multiple(true)
                 .short("m")
@@ -119,12 +114,14 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                     &Model::iter()
                         .map(|val| val.as_static())
                         .collect::<Vec<&str>>(),
-                ).help("Allowable models for this operation/program.")
+                )
+                .help("Allowable models for this operation/program.")
                 .long_help(concat!(
                     "Allowable models for this operation/program.",
                     " Default is to use all possible values."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("table-stats")
                 .multiple(true)
                 .short("t")
@@ -134,12 +131,14 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                     &TableStatArg::iter()
                         .map(|val| val.as_static())
                         .collect::<Vec<&str>>(),
-                ).help("Which statistics to show in the table.")
+                )
+                .help("Which statistics to show in the table.")
                 .long_help(concat!(
                     "Which statistics to show in the table.",
                     " Defaults to HDW,  MaxHDW, HainesLow, HainesMid, and HainesHigh"
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("graph-stats")
                 .multiple(true)
                 .short("g")
@@ -149,13 +148,15 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                     &GraphStatArg::iter()
                         .map(|val| val.as_static())
                         .collect::<Vec<&str>>(),
-                ).help("Which statistics to plot make a graph for.")
+                )
+                .help("Which statistics to plot make a graph for.")
                 .long_help(concat!(
                     "Which statistics to plot a graph for.",
                     " Defaults to HDW.",
                     " All graphs plot all available data, but each model is on an individual axis."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("init-time")
                 .long("init-time")
                 .short("i")
@@ -165,33 +166,40 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                     "The initialization time of the model run to analyze.",
                     " Format is YYYY-MM-DD-HH. If not specified then the model run is assumed to",
                     " be the last available run in the archive."
-                )).conflicts_with("start-time")
+                ))
+                .conflicts_with("start-time")
                 .conflicts_with("end_time"),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("start-time")
                 .long("start-time")
                 .takes_value(true)
                 .help(concat!(
                     "The model inititialization time of the first model run in a series.",
                     " YYYY-MM-DD-HH"
-                )).long_help(concat!(
+                ))
+                .long_help(concat!(
                     "The first initialization time in a series of model runs to analyze.",
                     " Format is YYYY-MM-DD-HH. If no end time is given it keeps going until the",
                     " most recent model run."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("end-time")
                 .long("end-time")
                 .takes_value(true)
                 .help(concat!(
                     "The model inititialization time of the last model run in a series.",
                     " YYYY-MM-DD-HH"
-                )).long_help(concat!(
+                ))
+                .long_help(concat!(
                     "The last initialization time in a series of model runs to analyze.",
                     " Format is YYYY-MM-DD-HH. If not specified then the model run is assumed to",
                     " be the last available run in the archive."
-                )).requires("start-time"),
-        ).arg(
+                ))
+                .requires("start-time"),
+        )
+        .arg(
             Arg::with_name("save-dir")
                 .long("save-dir")
                 .takes_value(true)
@@ -202,7 +210,8 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                     " data for each graph statistic specified. The exported data is set by the -g",
                     " option."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("print")
                 .long("print")
                 .short("p")
@@ -210,7 +219,8 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                 .default_value("y")
                 .takes_value(true)
                 .help("Print the results to the terminal."),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("root")
                 .short("r")
                 .long("root")
@@ -218,7 +228,8 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                 .help("Set the root of the archive.")
                 .long_help(
                     "Set the root directory of the archive you are invoking this command for.",
-                ).conflicts_with("create")
+                )
+                .conflicts_with("create")
                 .global(true),
         );
 
@@ -246,7 +257,7 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
         .collect();
 
     if sites.is_empty() {
-        sites = arch.get_sites()?.into_iter().map(|site| site.id).collect();
+        sites = arch.sites()?.into_iter().map(|site| site.id).collect();
     }
 
     for site in &sites {
@@ -274,7 +285,7 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
         .collect();
 
     if table_stats.is_empty() {
-        use TableStatArg::{HainesHigh, HainesLow, HainesMid, Hdw, MaxHdw};
+        use crate::TableStatArg::{HainesHigh, HainesLow, HainesMid, Hdw, MaxHdw};
         table_stats = vec![Hdw, MaxHdw, HainesLow, HainesMid, HainesHigh];
     }
 
@@ -286,7 +297,7 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
         .collect();
 
     if graph_stats.is_empty() {
-        use GraphStatArg::Hdw;
+        use crate::GraphStatArg::Hdw;
         graph_stats = vec![Hdw];
     }
 
@@ -359,8 +370,8 @@ fn calculate_stats(
     init_time: &NaiveDateTime,
     g_stats: &[GraphStatArg],
     t_stats: &[TableStatArg],
-) -> Result<ModelStats, Error> {
-    let analysis = arch.get_file(site, model, init_time)?;
+) -> Result<ModelStats, Box<dyn Error>> {
+    let analysis = arch.retrieve(site, model, init_time)?;
 
     let analysis = BufkitData::new(&analysis)?;
 
@@ -383,14 +394,14 @@ fn calculate_stats(
 
         let cal_day = (valid_time - Duration::hours(12)).date(); // Daily stats from 12Z to 12Z
 
-        let mut graph_stats = model_stats
+        let graph_stats = model_stats
             .graph_stats
             .entry(valid_time)
             .or_insert_with(HashMap::new);
 
         // Build the graph stats
         for &graph_stat in g_stats {
-            use GraphStatArg::*;
+            use crate::GraphStatArg::*;
 
             let stat = match graph_stat {
                 Hdw => sounding_analysis::hot_dry_windy(sounding),
@@ -410,7 +421,7 @@ fn calculate_stats(
 
         // Build the daily stats
         for &table_stat in t_stats {
-            use TableStatArg::*;
+            use crate::TableStatArg::*;
 
             let zero_z = |old_val: (f64, u32), new_val: (f64, u32)| -> (f64, u32) {
                 if valid_time.hour() == 0 {
@@ -460,12 +471,12 @@ fn calculate_stats(
                 TableStatArg::None => unreachable!(),
             };
 
-            let mut table_stats = model_stats
+            let table_stats = model_stats
                 .table_stats
                 .entry(table_stat)
                 .or_insert_with(HashMap::new);
 
-            let mut day_entry = table_stats.entry(cal_day).or_insert((::std::f64::NAN, 12));
+            let day_entry = table_stats.entry(cal_day).or_insert((::std::f64::NAN, 12));
             let hour = valid_time.hour();
 
             *day_entry = selector(*day_entry, (stat, hour));
@@ -483,7 +494,7 @@ fn print_stats(
     stats: &ModelStats,
     g_stats: &[GraphStatArg],
     t_stats: &[TableStatArg],
-) -> Result<(), Error> {
+) -> Result<(), Box<dyn Error>> {
     //
     // Table
     //
@@ -510,7 +521,8 @@ fn print_stats(
         let footer = concat!(
             "For daily maximum values, first and last days may be partial. ",
             "Days run from 12Z on the date listed until 12Z the next day."
-        ).to_owned();
+        )
+        .to_owned();
 
         let mut tp = TablePrinter::new()
             .with_title(title)
@@ -519,7 +531,7 @@ fn print_stats(
             .with_column("Date", &days);
 
         for &table_stat in t_stats {
-            use TableStatArg::*;
+            use crate::TableStatArg::*;
 
             let vals = match table_stats.get(&table_stat) {
                 Some(vals) => vals,
@@ -539,7 +551,8 @@ fn print_stats(
                         } else {
                             val
                         }
-                    }).collect(),
+                    })
+                    .collect(),
                 _ => daily_stat_values
                     .map(|(val, hour)| format!("{:.0} ({:02}Z)", val, hour))
                     .map(|val| {
@@ -548,7 +561,8 @@ fn print_stats(
                         } else {
                             val
                         }
-                    }).collect(),
+                    })
+                    .collect(),
             };
 
             tp = tp.with_column(table_stat.as_static(), &daily_stat_values);
@@ -632,7 +646,7 @@ fn save_stats(
     g_stats: &[GraphStatArg],
     _t_stats: &[TableStatArg],
     save_dir: &PathBuf,
-) -> Result<(), Error> {
+) -> Result<(), Box<dyn Error>> {
     let graph_stats = &stats.graph_stats;
     let mut vts: Vec<NaiveDateTime> = graph_stats.keys().cloned().collect();
     vts.sort();
@@ -705,7 +719,7 @@ impl GraphStatArg {
     }
 
     fn default_max_y(self) -> f32 {
-        use GraphStatArg::*;
+        use crate::GraphStatArg::*;
 
         match self {
             Hdw => 700.0,
