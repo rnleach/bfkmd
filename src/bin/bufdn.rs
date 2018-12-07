@@ -276,7 +276,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         .filter(|(_, _, _, url)| !missing_urls.is_missing(url).unwrap_or(false))
         // Pass it off to another thread for downloading.
         .for_each(move |list_val: (String, Model, NaiveDateTime, String)| {
-            if let Err(_) = main_tx.send(list_val) {
+            if main_tx.send(list_val).is_err() {
                 return;
             }
         });

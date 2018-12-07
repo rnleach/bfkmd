@@ -173,6 +173,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
     })
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn reset(args: CmdLineArgs) -> Result<(), Box<dyn Error>> {
     let path = ClimoDB::path_to_climo_db(&args.root);
     if path.as_path().is_file() {}

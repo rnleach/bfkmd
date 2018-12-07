@@ -94,6 +94,7 @@ pub(crate) fn build_climo(args: CmdLineArgs) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[allow(clippy::type_complexity)]
 fn start_entry_point_thread(
     args: CmdLineArgs,
     entry_point_snd: Sender<PipelineMessage>,
@@ -254,7 +255,7 @@ fn start_parser_thread(
                                 site: site.clone(),
                                 model,
                                 valid_time,
-                                anal,
+                                anal: Box::new(anal),
                             };
                             cli_requests.send(message).map_err(|err| err.to_string())?;
                         } else {
@@ -342,7 +343,7 @@ fn start_cli_stats_thread(
                                             .ok()
                                             .map(|rh| (rh * 100.0) as i32);
 
-                                        if let Some(anal) = lift_parcel(parcel, snd).ok() {
+                                        if let Ok(anal) = lift_parcel(parcel, snd) {
                                             let cape = anal
                                                 .get_index(ParcelIndex::CAPE)
                                                 .map(|cape| cape as i32);
@@ -366,7 +367,7 @@ fn start_cli_stats_thread(
                                     ccl_agl_m,
                                     el_asl_m,
                                 ) = {
-                                    if let Some(parcel) = convective_parcel(snd).ok() {
+                                    if let Ok(parcel) = convective_parcel(snd) {
                                         let conv_t_def = ml_parcel
                                             .map(|ml_pcl| parcel.temperature - ml_pcl.temperature);
 
@@ -583,14 +584,14 @@ enum PipelineMessage {
         site: Site,
         model: Model,
         valid_time: NaiveDateTime,
-        anal: Analysis,
+        anal: Box<Analysis>,
     },
     Location {
         num: usize,
         site: Site,
         model: Model,
         valid_time: NaiveDateTime,
-        anal: Analysis,
+        anal: Box<Analysis>,
     },
     Completed {
         num: usize,

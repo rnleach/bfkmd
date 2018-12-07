@@ -119,7 +119,7 @@ fn sites_list(
         let offset = site
             .time_zone
             .map(|val| val.to_string())
-            .unwrap_or(blank.clone());
+            .unwrap_or_else(|| blank.clone());
         let notes = site.notes.as_ref().unwrap_or(&blank);
         let auto_dl = if site.auto_download { "Yes" } else { "No" };
         let models = arch
