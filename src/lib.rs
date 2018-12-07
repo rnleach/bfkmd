@@ -3,8 +3,8 @@
 //
 // Public API
 //
-pub use table_printer::TablePrinter;
-pub use util::{bail, parse_date_string};
+pub use crate::table_printer::TablePrinter;
+pub use crate::util::{bail, parse_date_string};
 
 //
 // Internal only
@@ -12,7 +12,6 @@ pub use util::{bail, parse_date_string};
 extern crate bufkit_data;
 extern crate chrono;
 extern crate crossbeam_channel;
-extern crate failure;
 extern crate rusqlite;
 extern crate sounding_analysis;
 extern crate sounding_bufkit;

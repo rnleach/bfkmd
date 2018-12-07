@@ -1,13 +1,10 @@
-use super::builder::ErrorMessage;
-use bufkit_data::{Archive, Model, Site};
-use chrono::{Datelike, Duration, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc};
-use crossbeam_channel::{self, Receiver, Sender};
-use failure::Error;
+use bufkit_data::{Model, Site};
+use chrono::{Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, Statement, NO_PARAMS};
+use std::error::Error;
 use std::fs::create_dir;
 use std::path::{Path, PathBuf};
-use std::{thread, thread::JoinHandle};
 use strum::AsStaticRef;
 
 pub struct ClimoDB {
@@ -22,7 +19,7 @@ impl ClimoDB {
         arch_root.join(Self::CLIMO_DIR).join(Self::CLIMO_DB)
     }
 
-    pub fn open_or_create(arch_root: &Path) -> Result<Self, Error> {
+    pub fn connect_or_create(arch_root: &Path) -> Result<Self, Box<dyn Error>> {
         let climo_path = arch_root.join(Self::CLIMO_DIR);
         if !climo_path.is_dir() {
             create_dir(&climo_path)?;
@@ -57,456 +54,273 @@ impl ClimoDB {
         )?;
 
         //
-        // Create the the fire climate table
+        // Create the the climate table
         //
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS fire (
-                site          TEXT NOT NULL,
-                model         TEXT NOT NULL,
-                valid_time    TEXT NOT NULL,
-                year_lcl      INT  NOT NULL,
-                month_lcl     INT  NOT NULL,
-                day_lcl       INT  NOT NULL,
-                hour_lcl      INT  NOT NULL,
-                haines_high   INT,
-                haines_mid    INT,
-                haines_low    INT,
-                hdw           INT,
+            "CREATE TABLE IF NOT EXISTS cli (
+                site         TEXT NOT NULL,
+                model        TEXT NOT NULL,
+
+                valid_time   TEXT NOT NULL,
+                year_lcl     INT  NOT NULL,
+                month_lcl    INT  NOT NULL,
+                day_lcl      INT  NOT NULL,
+                hour_lcl     INT  NOT NULL,
+
+                haines_high  INT,
+                haines_mid   INT,
+                haines_low   INT,
+                hdw          INT,
+                conv_t_def_c REAL,
+                dry_cape     INT,
+                wet_cape     INT,
+                cape_ratio   REAL,
+                ccl_agl_m    INT,
+                el_asl_m     INT,
+
+                mlcape       INT,
+                mlcin        INT,
+                dcape        INT,
+
+                ml_sfc_t_c   INT,
+                ml_sfc_rh    INT,
+                sfc_wspd_kt  INT,
+                sfc_wdir     INT,
+
                 PRIMARY KEY (site, valid_time, model, year_lcl, month_lcl, day_lcl, hour_lcl)
             )",
             NO_PARAMS,
         )?;
 
+        conn.execute("PRAGMA cache_size=100000", NO_PARAMS)?;
+
         Ok(ClimoDB { conn })
     }
 }
 
-/// The struct creates and caches several prepared statements.
-pub struct ClimoDBInterface<'a, 'b: 'a> {
-    conn: &'a Connection,
-    add_location_query: Statement<'b>,
-    add_fire_data_query: Statement<'b>,
-    site: String,
-    model: String,
-    time_zone: FixedOffset,
-}
-
-impl<'a, 'b: 'a> ClimoDBInterface<'a, 'b> {
-    pub fn initialize(
-        climo_db: &'b ClimoDB,
-        site: &str,
+#[derive(Clone, Debug)]
+pub enum StatsRecord {
+    CliData {
+        site: Site,
         model: Model,
-        root: &Path,
-    ) -> Result<Self, Error> {
-        let conn = &climo_db.conn;
-        let site = site.to_uppercase();
-        let model = model.as_static().to_string();
-        let arch = Archive::connect(root)?;
-        let Site { time_zone, .. } = arch.get_site_info(&site)?;
-        let time_zone = time_zone.unwrap_or(FixedOffset::west(0));
+        valid_time: NaiveDateTime,
 
-        let add_location_query = conn.prepare(&format!(
-            "
-                    INSERT OR IGNORE INTO 
-                    locations (site, model, start_date, latitude, longitude, elevation_m)
-                    VALUES('{}', '{}', ?1, ?2, ?3, ?4)
-                ",
-            site, model,
-        ))?;
+        hns_high: i32,
+        hns_mid: i32,
+        hns_low: i32,
+        hdw: i32,
+        conv_t_def: Option<f64>,
+        dry_cape: Option<i32>,
+        wet_cape: Option<i32>,
+        cape_ratio: Option<f64>,
+        ccl_agl_m: Option<i32>,
+        el_asl_m: Option<i32>,
 
-        let add_fire_data_query = conn.prepare(&format!(
-            "
-                    INSERT OR REPLACE INTO
-                    fire (site, model, valid_time, year_lcl, month_lcl, day_lcl, hour_lcl, 
-                        haines_high, haines_mid, haines_low, hdw)
-                    VALUES ('{}', '{}', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                ",
-            site, model,
-        ))?;
+        mlcape: Option<i32>,
+        mlcin: Option<i32>,
+        dcape: Option<i32>,
 
-        Ok(ClimoDBInterface {
-            conn,
-            add_location_query,
-            add_fire_data_query,
-            site,
-            model,
-            time_zone,
-        })
-    }
-
-    #[inline]
-    pub fn get_current_climo_date_range(
-        &mut self,
-        site: &str,
+        ml_sfc_t: Option<i32>,
+        ml_sfc_rh: Option<i32>,
+        sfc_wspd_kt: Option<i32>,
+        sfc_wdir: Option<i32>,
+    },
+    Location {
+        site: Site,
         model: Model,
-    ) -> Result<(NaiveDateTime, NaiveDateTime), Error> {
-        let site = site.to_uppercase();
-        let model_str = model.as_static();
-
-        let start_res: Result<Result<NaiveDateTime, _>, _> = self.conn.query_row(
-            "
-                SELECT valid_time 
-                FROM fire 
-                WHERE site = ?1 AND model = ?2 
-                ORDER BY valid_time ASC 
-                LIMIT 1
-            ",
-            &[&site, model_str],
-            |row| row.get_checked(0),
-        );
-
-        let end_res: Result<Result<NaiveDateTime, _>, _> = self.conn.query_row(
-            "
-                SELECT valid_time 
-                FROM fire 
-                WHERE site = ?1 AND model = ?2 
-                ORDER BY valid_time DESC 
-                LIMIT 1
-            ",
-            &[&site, model_str],
-            |row| row.get_checked(0),
-        );
-
-        if let (Ok(Ok(start)), Ok(Ok(end))) = (start_res, end_res) {
-            Ok((start, end))
-        } else {
-            let now = Utc::now().naive_utc();
-            Ok((now, now))
-        }
-    }
-
-    #[inline]
-    pub fn add_location(
-        &mut self,
         valid_time: NaiveDateTime,
         lat: f64,
         lon: f64,
         elev_m: f64,
-    ) -> Result<(), Error> {
-        self.add_location_query.execute(&[
-            &valid_time as &ToSql,
-            &lat as &ToSql,
-            &lon as &ToSql,
-            &elev_m as &ToSql,
-        ])?;
+    },
+}
+
+#[derive(Clone, Debug, Hash)]
+struct StatsRecordKey<'a> {
+    site_id: &'a str,
+    model: Model,
+    valid_time: NaiveDateTime,
+}
+
+/// The struct creates and caches several prepared statements.
+pub struct ClimoDBInterface<'a, 'b: 'a> {
+    climo_db: &'b ClimoDB,
+    add_location_query: Statement<'a>,
+    add_data_query: Statement<'a>,
+    init_times_query: Statement<'a>,
+    write_buffer: Vec<StatsRecord>,
+}
+
+impl<'a, 'b> ClimoDBInterface<'a, 'b> {
+    const BUFSIZE: usize = 2048;
+    pub fn initialize(climo_db: &'b ClimoDB) -> Result<Self, Box<dyn Error>> {
+        let conn = &climo_db.conn;
+        let add_location_query = conn.prepare(
+            "
+                INSERT OR IGNORE INTO 
+                locations (site, model, start_date, latitude, longitude, elevation_m)
+                VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+            ",
+        )?;
+
+        let add_data_query = conn.prepare(
+            "
+                INSERT OR REPLACE INTO
+                cli (site, model, valid_time, year_lcl, month_lcl, day_lcl, hour_lcl, 
+                    haines_high, haines_mid, haines_low, hdw, conv_t_def_c, dry_cape, wet_cape,
+                    cape_ratio, ccl_agl_m, el_asl_m, mlcape, mlcin, dcape, ml_sfc_t_c, ml_sfc_rh,
+                    sfc_wspd_kt, sfc_wdir)
+                VALUES 
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+                 ?19, ?20, ?21, ?22, ?23, ?24)
+            ",
+        )?;
+
+        let init_times_query = conn.prepare(
+            "
+                SELECT valid_time FROM 
+                cli
+                WHERE site = ?1 AND MODEL = ?2
+            ",
+        )?;
+
+        Ok(ClimoDBInterface {
+            climo_db,
+            add_location_query,
+            add_data_query,
+            init_times_query,
+            write_buffer: Vec::with_capacity(ClimoDBInterface::BUFSIZE),
+        })
+    }
+
+    #[inline]
+    pub fn valid_times_for(
+        &mut self,
+        site: &Site,
+        model: Model,
+    ) -> Result<Vec<NaiveDateTime>, Box<dyn Error>> {
+        let model_str = model.as_static();
+
+        let valid_times: Result<Vec<NaiveDateTime>, _> = self
+            .init_times_query
+            .query_map(&[&site.id as &ToSql, &model_str], |row| row.get(0))?
+            .collect();
+        let valid_times = valid_times?;
+
+        Ok(valid_times)
+    }
+
+    #[inline]
+    pub fn add(&mut self, record: StatsRecord) -> Result<(), Box<dyn Error>> {
+        debug_assert!(self.write_buffer.len() <= ClimoDBInterface::BUFSIZE);
+        self.write_buffer.push(record);
+
+        if self.write_buffer.len() == ClimoDBInterface::BUFSIZE {
+            self.flush()?;
+        }
 
         Ok(())
     }
 
     #[inline]
-    pub fn add_fire(
-        &mut self,
-        valid_time: NaiveDateTime,
-        hns_high_mid_low: (i32, i32, i32),
-        hdw: i32,
-    ) -> Result<(), Error> {
-        let lcl_time = self.time_zone.from_utc_datetime(&valid_time);
-        let year_lcl = lcl_time.year();
-        let month_lcl = lcl_time.month();
-        let day_lcl = lcl_time.day();
-        let hour_lcl = lcl_time.hour();
+    fn flush(&mut self) -> Result<(), Box<dyn Error>> {
+        use self::StatsRecord::*;
 
-        self.add_fire_data_query.execute(&[
-            &valid_time as &ToSql,
-            &year_lcl as &ToSql,
-            &month_lcl as &ToSql,
-            &day_lcl as &ToSql,
-            &hour_lcl as &ToSql,
-            &hns_high_mid_low.0 as &ToSql,
-            &hns_high_mid_low.1 as &ToSql,
-            &hns_high_mid_low.2 as &ToSql,
-            &hdw as &ToSql,
-        ])?;
+        self.climo_db.conn.execute("BEGIN TRANSACTION", NO_PARAMS)?;
+
+        for record in self.write_buffer.drain(..) {
+            match record {
+                CliData {
+                    site,
+                    model,
+                    valid_time,
+                    hns_low,
+                    hns_mid,
+                    hns_high,
+                    hdw,
+                    conv_t_def,
+                    dry_cape,
+                    wet_cape,
+                    cape_ratio,
+                    ccl_agl_m,
+                    el_asl_m,
+                    mlcape,
+                    mlcin,
+                    dcape,
+                    ml_sfc_t,
+                    ml_sfc_rh,
+                    sfc_wspd_kt,
+                    sfc_wdir,
+                } => {
+                    let lcl_time = site
+                        .time_zone
+                        .unwrap_or_else(|| FixedOffset::west(0))
+                        .from_utc_datetime(&valid_time);
+                    let year_lcl = lcl_time.year();
+                    let month_lcl = lcl_time.month();
+                    let day_lcl = lcl_time.day();
+                    let hour_lcl = lcl_time.hour();
+
+                    self.add_data_query
+                        .execute(&[
+                            &site.id as &ToSql,
+                            &model.as_static(),
+                            &valid_time as &ToSql,
+                            &year_lcl as &ToSql,
+                            &month_lcl as &ToSql,
+                            &day_lcl as &ToSql,
+                            &hour_lcl as &ToSql,
+                            &hns_high as &ToSql,
+                            &hns_mid as &ToSql,
+                            &hns_low as &ToSql,
+                            &hdw as &ToSql,
+                            &conv_t_def as &ToSql,
+                            &dry_cape as &ToSql,
+                            &wet_cape as &ToSql,
+                            &cape_ratio as &ToSql,
+                            &ccl_agl_m as &ToSql,
+                            &el_asl_m as &ToSql,
+                            &mlcape as &ToSql,
+                            &mlcin as &ToSql,
+                            &dcape as &ToSql,
+                            &ml_sfc_t as &ToSql,
+                            &ml_sfc_rh as &ToSql,
+                            &sfc_wspd_kt as &ToSql,
+                            &sfc_wdir as &ToSql,
+                        ])
+                        .map(|_| ())?
+                }
+                Location {
+                    site,
+                    model,
+                    valid_time,
+                    lat,
+                    lon,
+                    elev_m,
+                } => self
+                    .add_location_query
+                    .execute(&[
+                        &site.id as &ToSql,
+                        &model.as_static(),
+                        &valid_time as &ToSql,
+                        &lat as &ToSql,
+                        &lon as &ToSql,
+                        &elev_m as &ToSql,
+                    ])
+                    .map(|_| ())?,
+            }
+        }
+
+        self.climo_db
+            .conn
+            .execute("COMMIT TRANSACTION", NO_PARAMS)?;
 
         Ok(())
     }
+}
 
-    pub fn calc_fire_summary(&self) -> Result<Vec<FireSummaryRow>, Error> {
-        let mut to_return = Vec::with_capacity(366);
-
-        // Get the daily max HDW
-        let mut hdw_stmt = self.conn.prepare(&format!(
-            "
-                    SELECT month_lcl,day_lcl,MAX(hdw) 
-                    FROM fire 
-                    WHERE site ='{}' and model = '{}' 
-                    GROUP BY year_lcl,month_lcl,day_lcl
-                    ORDER BY hdw ASC
-                ",
-            self.site, self.model
-        ))?;
-        let daily_max_hdw: Result<Vec<(i32, i32, i32)>, _> = hdw_stmt
-            .query_map(NO_PARAMS, |row| (row.get(0), row.get(1), row.get(2)))?
-            .collect();
-        let daily_max_hdw = daily_max_hdw?;
-
-        if daily_max_hdw.is_empty() {
-            return Err(format_err!("Not enough data"));
-        }
-
-        let mut haines_stmt = self.conn.prepare(&format!(
-            "
-                    SELECT month_lcl,day_lcl,haines_high,haines_mid,haines_low 
-                    FROM fire 
-                    WHERE site ='{}' AND model = '{}' AND hour_lcl = 16
-                ",
-            self.site, self.model
-        ))?;
-        let evening_haines: Result<Vec<(i32, i32, i32, i32, i32)>, _> = haines_stmt
-            .query_map(NO_PARAMS, |row| {
-                (row.get(0), row.get(1), row.get(2), row.get(3), row.get(4))
-            })?.collect();
-        let evening_haines = evening_haines?;
-
-        static DAYS_PER_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
-        for month in 1u32..=12 {
-            for day in 1..=DAYS_PER_MONTH[month as usize - 1] {
-                // Use 2019 cause not a leap year
-                let center_date = NaiveDate::from_ymd(2019, month, day);
-                let first_date = center_date - Duration::days(7);
-                let last_date = center_date + Duration::days(7);
-
-                let first_month = first_date.month() as i32;
-                let first_day = first_date.day() as i32;
-                let last_month = last_date.month() as i32;
-                let last_day = last_date.day() as i32;
-
-                let hdw_vals: Vec<i32> = daily_max_hdw
-                    .iter()
-                    .filter_map(|&(month, day, hdw)| {
-                        if (first_month == last_month
-                            && month == first_month
-                            && day >= first_day
-                            && day <= last_day)
-                            || (first_month != last_month
-                                && month == first_month
-                                && day >= first_day)
-                            || (first_month != last_month && month == last_month && day <= last_day)
-                        {
-                            Some(hdw)
-                        } else {
-                            None
-                        }
-                    }).collect();
-
-                if hdw_vals.is_empty() {
-                    return Err(format_err!("Not enough data"));
-                }
-
-                let pct_idx = |pctl: usize, len: usize| -> usize {
-                    ((len - 1) as f32 / 100.0 * pctl as f32).round() as usize
-                };
-
-                let num_samples = hdw_vals.len();
-
-                let hdw_pcts: [i32; 11] = [
-                    hdw_vals[0],
-                    hdw_vals[pct_idx(10, hdw_vals.len())],
-                    hdw_vals[pct_idx(20, hdw_vals.len())],
-                    hdw_vals[pct_idx(30, hdw_vals.len())],
-                    hdw_vals[pct_idx(40, hdw_vals.len())],
-                    hdw_vals[pct_idx(50, hdw_vals.len())],
-                    hdw_vals[pct_idx(60, hdw_vals.len())],
-                    hdw_vals[pct_idx(70, hdw_vals.len())],
-                    hdw_vals[pct_idx(80, hdw_vals.len())],
-                    hdw_vals[pct_idx(90, hdw_vals.len())],
-                    hdw_vals[hdw_vals.len() - 1],
-                ];
-
-                let mut haines_total = 0;
-                let mut haines_high = (0, 0, 0, 0, 0, 0);
-                let mut haines_mid = (0, 0, 0, 0, 0, 0);
-                let mut haines_low = (0, 0, 0, 0, 0, 0);
-
-                evening_haines
-                    .iter()
-                    .filter_map(|&(month, day, high, mid, low)| {
-                        if (first_month == last_month
-                            && month == first_month
-                            && day >= first_day
-                            && day <= last_day)
-                            || (first_month != last_month
-                                && month == first_month
-                                && day >= first_day)
-                            || (first_month != last_month && month == last_month && day <= last_day)
-                        {
-                            Some((high, mid, low))
-                        } else {
-                            None
-                        }
-                    }).for_each(|(high, mid, low)| {
-                        haines_total += 1;
-                        match high {
-                            0 => haines_high.0 += 1,
-                            2 => haines_high.1 += 1,
-                            3 => haines_high.2 += 1,
-                            4 => haines_high.3 += 1,
-                            5 => haines_high.4 += 1,
-                            6 => haines_high.5 += 1,
-                            _ => panic!("Invalid Haines value"),
-                        }
-                        match mid {
-                            0 => haines_mid.0 += 1,
-                            2 => haines_mid.1 += 1,
-                            3 => haines_mid.2 += 1,
-                            4 => haines_mid.3 += 1,
-                            5 => haines_mid.4 += 1,
-                            6 => haines_mid.5 += 1,
-                            _ => panic!("Invalid Haines value"),
-                        }
-                        match low {
-                            0 => haines_low.0 += 1,
-                            2 => haines_low.1 += 1,
-                            3 => haines_low.2 += 1,
-                            4 => haines_low.3 += 1,
-                            5 => haines_low.4 += 1,
-                            6 => haines_low.5 += 1,
-                            _ => panic!("Invalid Haines value"),
-                        }
-                    });
-                let haines_total = haines_total as f64;
-                let haines_high_pcts = [
-                    haines_high.0 as f64 / haines_total,
-                    haines_high.1 as f64 / haines_total,
-                    haines_high.2 as f64 / haines_total,
-                    haines_high.3 as f64 / haines_total,
-                    haines_high.4 as f64 / haines_total,
-                    haines_high.5 as f64 / haines_total,
-                ];
-                let haines_mid_pcts = [
-                    haines_mid.0 as f64 / haines_total,
-                    haines_mid.1 as f64 / haines_total,
-                    haines_mid.2 as f64 / haines_total,
-                    haines_mid.3 as f64 / haines_total,
-                    haines_mid.4 as f64 / haines_total,
-                    haines_mid.5 as f64 / haines_total,
-                ];
-                let haines_low_pcts = [
-                    haines_low.0 as f64 / haines_total,
-                    haines_low.1 as f64 / haines_total,
-                    haines_low.2 as f64 / haines_total,
-                    haines_low.3 as f64 / haines_total,
-                    haines_low.4 as f64 / haines_total,
-                    haines_low.5 as f64 / haines_total,
-                ];
-
-                to_return.push(FireSummaryRow {
-                    month,
-                    day,
-                    hdw_pcts,
-                    haines_low_pcts,
-                    haines_mid_pcts,
-                    haines_high_pcts,
-                    num_samples,
-                });
-            }
-        }
-
-        Ok(to_return)
+impl<'a, 'b> Drop for ClimoDBInterface<'a, 'b> {
+    fn drop(&mut self) {
+        self.flush().unwrap()
     }
-}
-
-pub struct FireSummaryRow {
-    // All values should use a 15 day sliding window centered on the month/day
-    month: u32,
-    day: u32,
-    hdw_pcts: [i32; 11], // [min, 10, 20, 30, ..., 80, 60, max] min->deciles->max
-    haines_low_pcts: [f64; 6], // [0,2,3,4,5,6] relative frequency.
-    haines_mid_pcts: [f64; 6], //            "
-    haines_high_pcts: [f64; 6], //           "
-    num_samples: usize,
-}
-
-impl FireSummaryRow {
-    pub fn as_strings(&self) -> Vec<String> {
-        let mut to_return = vec![];
-        to_return.push(self.month.to_string());
-        to_return.push(self.day.to_string());
-        for percentile in &self.hdw_pcts {
-            to_return.push(percentile.to_string());
-        }
-        for percent in &self.haines_low_pcts {
-            to_return.push(percent.to_string());
-        }
-        for percent in &self.haines_mid_pcts {
-            to_return.push(percent.to_string());
-        }
-        for percent in &self.haines_high_pcts {
-            to_return.push(percent.to_string());
-        }
-        to_return.push(self.num_samples.to_string());
-
-        to_return
-    }
-}
-
-#[derive(Debug)]
-pub enum DBRequest {
-    GetClimoDateRange(Sender<DBResponse>),
-    AddLocation(NaiveDateTime, f64, f64, f64),
-    AddFire(NaiveDateTime, (i32, i32, i32), i32),
-}
-
-#[derive(Debug)]
-pub enum DBResponse {
-    ClimoDateRange(NaiveDateTime, NaiveDateTime),
-}
-
-pub fn start_climo_db_thread(
-    arch_root: &Path,
-    site: &str,
-    model: Model,
-    error_stream: Sender<ErrorMessage>,
-) -> (JoinHandle<()>, Sender<DBRequest>) {
-    use self::DBRequest::*;
-    use self::DBResponse::*;
-    const CAPACITY: usize = 64;
-
-    let (sender, recv): (Sender<DBRequest>, Receiver<_>) = crossbeam_channel::bounded(CAPACITY);
-    let root = arch_root.to_owned();
-    let site = site.to_string();
-
-    let join_handle = thread::Builder::new()
-        .name("climo_db".to_owned())
-        .spawn(move || -> () {
-            let climo_db = match ClimoDB::open_or_create(&root) {
-                Ok(db) => db,
-                Err(err) => {
-                    error_stream.send(ErrorMessage::Critical(err));
-                    return;
-                }
-            };
-
-            let mut climo_db = match ClimoDBInterface::initialize(&climo_db, &site, model, &root) {
-                Ok(iface) => iface,
-                Err(err) => {
-                    error_stream.send(ErrorMessage::Critical(err));
-                    return;
-                }
-            };
-
-            for req in recv {
-                let res = match req {
-                    GetClimoDateRange(sender) => climo_db
-                        .get_current_climo_date_range(&site, model)
-                        .map(|(start, end)| ClimoDateRange(start, end))
-                        .and_then(|response| {
-                            sender.send(response);
-                            Ok(())
-                        }),
-                    AddLocation(start_time, lat, lon, elev_m) => {
-                        climo_db.add_location(start_time, lat, lon, elev_m)
-                    }
-                    AddFire(valid_time, haines, hdw) => climo_db.add_fire(valid_time, haines, hdw),
-                };
-
-                if let Err(err) = res {
-                    error_stream.send(ErrorMessage::Critical(err));
-                    return;
-                }
-            }
-        }).unwrap();
-
-    (join_handle, sender)
 }

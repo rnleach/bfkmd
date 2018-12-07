@@ -7,23 +7,22 @@ extern crate bufkit_data;
 extern crate chrono;
 #[macro_use]
 extern crate clap;
-#[macro_use]
 extern crate crossbeam_channel;
 extern crate csv;
 extern crate dirs;
 #[macro_use]
-extern crate failure;
-#[macro_use]
 extern crate itertools;
+extern crate metfor;
 extern crate pbr;
 extern crate rusqlite;
 extern crate sounding_analysis;
+extern crate sounding_base;
 extern crate sounding_bufkit;
 extern crate strum;
+extern crate threadpool;
 
 mod builder;
 mod climo_db;
-mod export;
 
 use self::builder::build_climo;
 use self::climo_db::ClimoDB;
@@ -31,40 +30,33 @@ use bfkmd::bail;
 use bufkit_data::{Archive, Model};
 use clap::{App, Arg};
 use dirs::home_dir;
-use export::export_climo;
-use failure::{Error, Fail};
+use std::error::Error;
 use std::path::PathBuf;
 use std::str::FromStr;
 use strum::{AsStaticRef, IntoEnumIterator};
 
 fn main() {
-    if let Err(ref e) = run() {
+    if let Err(e) = run() {
         println!("error: {}", e);
 
-        let mut fail: &Fail = e.as_fail();
+        let mut err = &*e;
 
-        while let Some(cause) = fail.cause() {
+        while let Some(cause) = err.source() {
             println!("caused by: {}", cause);
-
-            if let Some(backtrace) = cause.backtrace() {
-                println!("backtrace: {}\n\n\n", backtrace);
-            }
-
-            fail = cause;
+            err = cause;
         }
 
         ::std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), Error> {
-    let args = &parse_args()?;
+fn run() -> Result<(), Box<dyn Error>> {
+    let args = parse_args()?;
 
     match args.operation.as_ref() {
-        "build" => build(args, true),
-        "update" => build(args, false),
+        "build" => build_climo(args),
+        "update" => build_climo(args),
         "reset" => reset(args),
-        "export" => export(args),
         _ => bail("Unknown operation."),
     }
 }
@@ -75,10 +67,9 @@ struct CmdLineArgs {
     sites: Vec<String>,
     models: Vec<Model>,
     operation: String,
-    export_dir: Option<PathBuf>,
 }
 
-fn parse_args() -> Result<CmdLineArgs, Error> {
+fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
     let app = App::new("bufcli")
         .author("Ryan Leach <clumsycodemonkey@gmail.com>")
         .version(crate_version!())
@@ -90,7 +81,8 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                 .long("sites")
                 .takes_value(true)
                 .help("Site identifiers (e.g. kord, katl, smn)."),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("models")
                 .multiple(true)
                 .short("m")
@@ -100,12 +92,14 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                     &Model::iter()
                         .map(|val| val.as_static())
                         .collect::<Vec<&str>>(),
-                ).help("Allowable models for this operation/program.")
+                )
+                .help("Allowable models for this operation/program.")
                 .long_help(concat!(
                     "Allowable models for this operation/program.",
                     " Default is to use all possible values."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("root")
                 .short("r")
                 .long("root")
@@ -113,26 +107,22 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
                 .help("Set the root of the archive.")
                 .long_help(
                     "Set the root directory of the archive you are invoking this command for.",
-                ).conflicts_with("create")
+                )
+                .conflicts_with("create")
                 .global(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("operation")
                 .index(1)
                 .takes_value(true)
                 .required(true)
-                .possible_values(&["build", "reset", "update", "export"])
+                .possible_values(&["build", "reset", "update"])
                 .help("Build, update, or delete the climatology database.")
                 .long_help(concat!(
-                    "Either build, update, or reset the climate database. reset deletes the",
+                    "Either build, update, or reset the climate database. 'reset' deletes the",
                     " whole climate database and starts over fresh. Update will only add data for",
                     " dates not already in the database.",
                 )),
-        ).arg(
-            Arg::with_name("export-dir")
-                .index(2)
-                .takes_value(true)
-                .required_if("operation", "export")
-                .help("Path to leave CSV files in for climo exports."),
         );
 
     let matches = app.get_matches();
@@ -159,13 +149,7 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
         .collect();
 
     if sites.is_empty() {
-        sites = arch.get_sites()?.into_iter().map(|site| site.id).collect();
-    }
-
-    for site in &sites {
-        if !arch.site_exists(site)? {
-            println!("Site {} not in the archive, skipping.", site);
-        }
+        sites = arch.sites()?.into_iter().map(|site| site.id).collect();
     }
 
     let mut models: Vec<Model> = matches
@@ -179,57 +163,22 @@ fn parse_args() -> Result<CmdLineArgs, Error> {
         models = vec![Model::GFS, Model::NAM, Model::NAM4KM];
     }
 
-    let export_dir: Option<PathBuf> = matches
-        .value_of("export-dir")
-        .map(str::to_owned)
-        .map(PathBuf::from);
-
-    export_dir.as_ref().and_then(|path| {
-        if !path.is_dir() {
-            bail(&format!("save-dir path {} does not exist.", path.display()));
-        } else {
-            Some(())
-        }
-    });
-
     let operation: String = matches.value_of("operation").map(str::to_owned).unwrap();
 
     Ok(CmdLineArgs {
         root: root_clone,
         sites,
         models,
-        export_dir,
         operation,
     })
 }
 
-fn build(args: &CmdLineArgs, from_scratch: bool) -> Result<(), Error> {
-    let arch = &Archive::connect(&args.root)?;
-
-    for (site, &model) in iproduct!(&args.sites, &args.models) {
-        build_climo(arch, site, model, from_scratch)?;
-    }
-
-    Ok(())
-}
-
-fn reset(args: &CmdLineArgs) -> Result<(), Error> {
+#[allow(clippy::needless_pass_by_value)]
+fn reset(args: CmdLineArgs) -> Result<(), Box<dyn Error>> {
     let path = ClimoDB::path_to_climo_db(&args.root);
     if path.as_path().is_file() {}
 
     ::std::fs::remove_file(&path)?;
-
-    Ok(())
-}
-
-fn export(args: &CmdLineArgs) -> Result<(), Error> {
-    let target_dir = &args.export_dir.as_ref().unwrap();
-
-    for (site, &model) in iproduct!(&args.sites, &args.models) {
-        if let Err(err) = export_climo(&args.root, target_dir, site, model) {
-            println!("Error for {} - {}: {}", site, model, err);
-        }
-    }
 
     Ok(())
 }
