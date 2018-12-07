@@ -376,9 +376,7 @@ fn build_url(
         _ => Err("Invalid model for download")?,
     };
 
-    let remote_site = translate_sites(&site, model);
-
-    let remote_file_name = remote_model.to_string() + "_" + remote_site + ".buf";
+    let remote_file_name = remote_model.to_string() + "_" + &site + ".buf";
 
     Ok(format!(
         "{}{}/{:02}/{:02}/bufkit/{:02}/{}/{}",
@@ -390,13 +388,6 @@ fn build_url(
         model.to_string().to_lowercase(),
         remote_file_name
     ))
-}
-
-fn translate_sites(site: &str, model: Model) -> &str {
-    match (site, model) {
-        ("kgpi", Model::GFS) => "kfca",
-        _ => site,
-    }
 }
 
 struct MissingUrlDb {
