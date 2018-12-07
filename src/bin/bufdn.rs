@@ -79,7 +79,8 @@ fn run() -> Result<(), Box<dyn Error>> {
                     "site, then it won't be in the database yet and you will need to also specify ",
                     "which models to download for the site."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("models")
                 .multiple(true)
                 .short("m")
@@ -87,7 +88,8 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .takes_value(true)
                 .help("Allowable models for this operation/program.")
                 .long_help("Allowable models for this operation/program. Case insensitive."),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("days-back")
                 .short("d")
                 .long("days-back")
@@ -97,7 +99,8 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .long_help(concat!(
                     "The number of days back to consider. Cannot use --start or --end with this."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("start")
                 .long("start")
                 .takes_value(true)
@@ -107,7 +110,8 @@ fn run() -> Result<(), Box<dyn Error>> {
                     " Format is YYYY-MM-DD-HH. If the --end argument is not specified",
                     " then the end time is assumed to be now."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("end")
                 .long("end")
                 .takes_value(true)
@@ -117,7 +121,8 @@ fn run() -> Result<(), Box<dyn Error>> {
                     "The initialization time of the last model run to download.",
                     " Format is YYYY-MM-DD-HH. This requires the --start option too."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("root")
                 .short("r")
                 .long("root")
@@ -125,9 +130,11 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .help("Set the root of the archive.")
                 .long_help(
                     "Set the root directory of the archive you are invoking this command for.",
-                ).conflicts_with("create")
+                )
+                .conflicts_with("create")
                 .global(true),
-        ).after_help(concat!(
+        )
+        .after_help(concat!(
             "To download data for a new site for the first time you must also specify the model."
         ));
 
@@ -341,7 +348,8 @@ fn build_download_list<'a>(
             } else {
                 true
             }
-        }).flat_map(move |(site, model)| {
+        })
+        .flat_map(move |(site, model)| {
             model
                 .all_runs(&(start - Duration::hours(model.hours_between_runs())), &end)
                 .map(move |init_time| (site.to_uppercase(), model, init_time))

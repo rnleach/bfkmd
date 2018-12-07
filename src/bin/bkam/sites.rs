@@ -228,7 +228,8 @@ fn sites_inventory(
                     "Inventory for {} at {}.",
                     model,
                     site.to_uppercase()
-                )).with_header(format!("{} -> {}", inv.first, inv.last));
+                ))
+                .with_header(format!("{} -> {}", inv.first, inv.last));
 
             let dl = if inv.auto_download { "" } else { " NOT" };
             tp = tp.with_footer(format!("This site is{} automatically downloaded.", dl));

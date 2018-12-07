@@ -103,7 +103,8 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .long("sites")
                 .takes_value(true)
                 .help("Site identifiers (e.g. kord, katl, smn)."),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("models")
                 .multiple(true)
                 .short("m")
@@ -113,12 +114,14 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                     &Model::iter()
                         .map(|val| val.as_static())
                         .collect::<Vec<&str>>(),
-                ).help("Allowable models for this operation/program.")
+                )
+                .help("Allowable models for this operation/program.")
                 .long_help(concat!(
                     "Allowable models for this operation/program.",
                     " Default is to use all possible values."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("table-stats")
                 .multiple(true)
                 .short("t")
@@ -128,12 +131,14 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                     &TableStatArg::iter()
                         .map(|val| val.as_static())
                         .collect::<Vec<&str>>(),
-                ).help("Which statistics to show in the table.")
+                )
+                .help("Which statistics to show in the table.")
                 .long_help(concat!(
                     "Which statistics to show in the table.",
                     " Defaults to HDW,  MaxHDW, HainesLow, HainesMid, and HainesHigh"
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("graph-stats")
                 .multiple(true)
                 .short("g")
@@ -143,13 +148,15 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                     &GraphStatArg::iter()
                         .map(|val| val.as_static())
                         .collect::<Vec<&str>>(),
-                ).help("Which statistics to plot make a graph for.")
+                )
+                .help("Which statistics to plot make a graph for.")
                 .long_help(concat!(
                     "Which statistics to plot a graph for.",
                     " Defaults to HDW.",
                     " All graphs plot all available data, but each model is on an individual axis."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("init-time")
                 .long("init-time")
                 .short("i")
@@ -159,33 +166,40 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                     "The initialization time of the model run to analyze.",
                     " Format is YYYY-MM-DD-HH. If not specified then the model run is assumed to",
                     " be the last available run in the archive."
-                )).conflicts_with("start-time")
+                ))
+                .conflicts_with("start-time")
                 .conflicts_with("end_time"),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("start-time")
                 .long("start-time")
                 .takes_value(true)
                 .help(concat!(
                     "The model inititialization time of the first model run in a series.",
                     " YYYY-MM-DD-HH"
-                )).long_help(concat!(
+                ))
+                .long_help(concat!(
                     "The first initialization time in a series of model runs to analyze.",
                     " Format is YYYY-MM-DD-HH. If no end time is given it keeps going until the",
                     " most recent model run."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("end-time")
                 .long("end-time")
                 .takes_value(true)
                 .help(concat!(
                     "The model inititialization time of the last model run in a series.",
                     " YYYY-MM-DD-HH"
-                )).long_help(concat!(
+                ))
+                .long_help(concat!(
                     "The last initialization time in a series of model runs to analyze.",
                     " Format is YYYY-MM-DD-HH. If not specified then the model run is assumed to",
                     " be the last available run in the archive."
-                )).requires("start-time"),
-        ).arg(
+                ))
+                .requires("start-time"),
+        )
+        .arg(
             Arg::with_name("save-dir")
                 .long("save-dir")
                 .takes_value(true)
@@ -196,7 +210,8 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                     " data for each graph statistic specified. The exported data is set by the -g",
                     " option."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("print")
                 .long("print")
                 .short("p")
@@ -204,7 +219,8 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .default_value("y")
                 .takes_value(true)
                 .help("Print the results to the terminal."),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("root")
                 .short("r")
                 .long("root")
@@ -212,7 +228,8 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .help("Set the root of the archive.")
                 .long_help(
                     "Set the root directory of the archive you are invoking this command for.",
-                ).conflicts_with("create")
+                )
+                .conflicts_with("create")
                 .global(true),
         );
 
@@ -504,7 +521,8 @@ fn print_stats(
         let footer = concat!(
             "For daily maximum values, first and last days may be partial. ",
             "Days run from 12Z on the date listed until 12Z the next day."
-        ).to_owned();
+        )
+        .to_owned();
 
         let mut tp = TablePrinter::new()
             .with_title(title)
@@ -533,7 +551,8 @@ fn print_stats(
                         } else {
                             val
                         }
-                    }).collect(),
+                    })
+                    .collect(),
                 _ => daily_stat_values
                     .map(|(val, hour)| format!("{:.0} ({:02}Z)", val, hour))
                     .map(|val| {
@@ -542,7 +561,8 @@ fn print_stats(
                         } else {
                             val
                         }
-                    }).collect(),
+                    })
+                    .collect(),
             };
 
             tp = tp.with_column(table_stat.as_static(), &daily_stat_values);

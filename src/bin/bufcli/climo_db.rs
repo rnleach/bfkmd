@@ -287,7 +287,8 @@ impl<'a, 'b> ClimoDBInterface<'a, 'b> {
                             &ml_sfc_rh as &ToSql,
                             &sfc_wspd_kt as &ToSql,
                             &sfc_wdir as &ToSql,
-                        ]).map(|_| ())?
+                        ])
+                        .map(|_| ())?
                 }
                 Location {
                     site,
@@ -305,7 +306,8 @@ impl<'a, 'b> ClimoDBInterface<'a, 'b> {
                         &lat as &ToSql,
                         &lon as &ToSql,
                         &elev_m as &ToSql,
-                    ]).map(|_| ())?,
+                    ])
+                    .map(|_| ())?,
             }
         }
 

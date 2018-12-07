@@ -378,7 +378,8 @@ fn start_cli_stats_thread(
                                                 partition_cape(&profile_anal)
                                                     .ok()
                                                     .map(|(dry, wet)| (Some(dry), Some(wet)))
-                                            }).unwrap_or((None, None));
+                                            })
+                                            .unwrap_or((None, None));
 
                                         let cape_ratio =
                                             dry.and_then(|dry| wet.map(|wet| wet / dry));
@@ -396,7 +397,8 @@ fn start_cli_stats_thread(
                                                     .map(|el| el.round() as i32);
 
                                                 Some((ccl, el))
-                                            }).unwrap_or((None, None));
+                                            })
+                                            .unwrap_or((None, None));
 
                                         (conv_t_def, dry, wet, cape_ratio, ccl_agl_m, el_asl_m)
                                     } else {

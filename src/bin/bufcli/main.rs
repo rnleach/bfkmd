@@ -81,7 +81,8 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .long("sites")
                 .takes_value(true)
                 .help("Site identifiers (e.g. kord, katl, smn)."),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("models")
                 .multiple(true)
                 .short("m")
@@ -91,12 +92,14 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                     &Model::iter()
                         .map(|val| val.as_static())
                         .collect::<Vec<&str>>(),
-                ).help("Allowable models for this operation/program.")
+                )
+                .help("Allowable models for this operation/program.")
                 .long_help(concat!(
                     "Allowable models for this operation/program.",
                     " Default is to use all possible values."
                 )),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("root")
                 .short("r")
                 .long("root")
@@ -104,9 +107,11 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .help("Set the root of the archive.")
                 .long_help(
                     "Set the root directory of the archive you are invoking this command for.",
-                ).conflicts_with("create")
+                )
+                .conflicts_with("create")
                 .global(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("operation")
                 .index(1)
                 .takes_value(true)
