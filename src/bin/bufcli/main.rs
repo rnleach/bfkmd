@@ -2,25 +2,6 @@
 //!
 //! Generate ad hoc model climatologies from Bufkit soundings and store the intermediate data in the
 //! archive. These can be queried later by other tools to provide context to any given analysis.
-extern crate bfkmd;
-extern crate bufkit_data;
-extern crate chrono;
-#[macro_use]
-extern crate clap;
-extern crate crossbeam_channel;
-extern crate csv;
-extern crate dirs;
-#[macro_use]
-extern crate itertools;
-extern crate metfor;
-extern crate pbr;
-extern crate rusqlite;
-extern crate sounding_analysis;
-extern crate sounding_base;
-extern crate sounding_bufkit;
-extern crate strum;
-extern crate threadpool;
-
 mod builder;
 mod climo_db;
 
@@ -28,11 +9,9 @@ use self::builder::build_climo;
 use self::climo_db::ClimoDB;
 use bfkmd::bail;
 use bufkit_data::{Archive, Model};
-use clap::{App, Arg};
+use clap::{crate_version, App, Arg};
 use dirs::home_dir;
-use std::error::Error;
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::{error::Error, path::PathBuf, str::FromStr};
 use strum::{AsStaticRef, IntoEnumIterator};
 
 fn main() {
@@ -145,7 +124,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
     let mut sites: Vec<String> = matches
         .values_of("sites")
         .into_iter()
-        .flat_map(|site_iter| site_iter.map(|arg_val| arg_val.to_owned()))
+        .flat_map(|site_iter| site_iter.map(ToOwned::to_owned))
         .collect();
 
     if sites.is_empty() {
@@ -156,7 +135,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .values_of("models")
         .into_iter()
         .flat_map(|model_iter| model_iter.map(Model::from_str))
-        .filter_map(|res| res.ok())
+        .filter_map(Result::ok)
         .collect();
 
     if models.is_empty() {

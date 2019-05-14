@@ -1,21 +1,23 @@
 use super::{climo_db::StatsRecord, CmdLineArgs};
+use crate::climo_db::{ClimoDB, ClimoDBInterface};
 use bufkit_data::{Archive, BufkitDataErr, Model, Site};
 use chrono::NaiveDateTime;
-use crate::climo_db::{ClimoDB, ClimoDBInterface};
 use crossbeam_channel::{self as channel, Receiver, Sender};
-use metfor::rh;
+use itertools::iproduct;
+use metfor::{rh, Knots, Quantity, WindSpdDir};
 use pbr::ProgressBar;
 use sounding_analysis::{
     convective_parcel, dcape, haines_high, haines_low, haines_mid, hot_dry_windy, lift_parcel,
-    mixed_layer_parcel, partition_cape, Analysis, Parcel, ParcelIndex,
+    mixed_layer_parcel, partition_cape, Analysis, Parcel,
 };
-use sounding_base::Surface;
 use sounding_bufkit::BufkitData;
-use std::collections::HashSet;
-use std::error::Error;
-use std::iter::FromIterator;
-use std::path::Path;
-use std::thread::{self, JoinHandle};
+use std::{
+    collections::HashSet,
+    error::Error,
+    iter::FromIterator,
+    path::Path,
+    thread::{self, JoinHandle},
+};
 use threadpool;
 
 const CAPACITY: usize = 16;
@@ -182,7 +184,7 @@ fn start_load_thread(
                         site,
                         model,
                         init_time,
-                    } => match arch.retrieve(&site.id, model, &init_time) {
+                    } => match arch.retrieve(&site.id, model, init_time) {
                         Ok(data) => PipelineMessage::Parse {
                             num,
                             site,
@@ -227,7 +229,7 @@ fn start_parser_thread(
                     data,
                 } = msg
                 {
-                    let bufkit_data = match BufkitData::new(&data) {
+                    let bufkit_data = match BufkitData::init(&data, "") {
                         Ok(bufkit_data) => bufkit_data,
                         Err(err) => {
                             let message = PipelineMessage::DataError {
@@ -244,12 +246,12 @@ fn start_parser_thread(
 
                     for anal in bufkit_data.into_iter().take_while(|anal| {
                         anal.sounding()
-                            .get_lead_time()
+                            .lead_time()
                             .into_option()
                             .and_then(|lt| Some(i64::from(lt) < model.hours_between_runs()))
                             .unwrap_or(false)
                     }) {
-                        if let Some(valid_time) = anal.sounding().get_valid_time() {
+                        if let Some(valid_time) = anal.sounding().valid_time() {
                             let message = PipelineMessage::CliData {
                                 num,
                                 site: site.clone(),
@@ -313,9 +315,9 @@ fn start_cli_stats_thread(
                             {
                                 let snd = anal.sounding();
 
-                                let hns_low = haines_low(snd).unwrap_or(0.0) as i32;
-                                let hns_mid = haines_mid(snd).unwrap_or(0.0) as i32;
-                                let hns_high = haines_high(snd).unwrap_or(0.0) as i32;
+                                let hns_low = i32::from(haines_low(snd).unwrap_or(0));
+                                let hns_mid = i32::from(haines_mid(snd).unwrap_or(0));
+                                let hns_high = i32::from(haines_high(snd).unwrap_or(0));
 
                                 let hdw = match hot_dry_windy(snd) {
                                     Ok(hdw) => hdw as i32,
@@ -338,18 +340,13 @@ fn start_cli_stats_thread(
 
                                 let (mlcape, mlcin, ml_sfc_t, ml_sfc_rh) = {
                                     if let Some(parcel) = ml_parcel {
-                                        let ml_sfc_t = Some(parcel.temperature as i32);
+                                        let ml_sfc_t = Some(parcel.temperature.unpack() as i32);
                                         let ml_sfc_rh = rh(parcel.temperature, parcel.dew_point)
-                                            .ok()
                                             .map(|rh| (rh * 100.0) as i32);
 
                                         if let Ok(anal) = lift_parcel(parcel, snd) {
-                                            let cape = anal
-                                                .get_index(ParcelIndex::CAPE)
-                                                .map(|cape| cape as i32);
-                                            let cin = anal
-                                                .get_index(ParcelIndex::CIN)
-                                                .map(|cin| cin as i32);
+                                            let cape = anal.cape().map(|cape| cape.unpack() as i32);
+                                            let cin = anal.cin().map(|cin| cin.unpack() as i32);
                                             (cape, cin, ml_sfc_t, ml_sfc_rh)
                                         } else {
                                             (None, None, ml_sfc_t, ml_sfc_rh)
@@ -368,8 +365,9 @@ fn start_cli_stats_thread(
                                     el_asl_m,
                                 ) = {
                                     if let Ok(parcel) = convective_parcel(snd) {
-                                        let conv_t_def = ml_parcel
-                                            .map(|ml_pcl| parcel.temperature - ml_pcl.temperature);
+                                        let conv_t_def = ml_parcel.map(|ml_pcl| {
+                                            (parcel.temperature - ml_pcl.temperature).unpack()
+                                        });
 
                                         let parcel_anal = lift_parcel(parcel, snd).ok();
 
@@ -384,18 +382,18 @@ fn start_cli_stats_thread(
 
                                         let cape_ratio =
                                             dry.and_then(|dry| wet.map(|wet| wet / dry));
-                                        let dry = dry.map(|dry| dry.round() as i32);
-                                        let wet = wet.map(|wet| wet.round() as i32);
+                                        let dry = dry.map(|dry| dry.unpack().round() as i32);
+                                        let wet = wet.map(|wet| wet.unpack().round() as i32);
 
                                         let (ccl_agl_m, el_asl_m) = parcel_anal
                                             .as_ref()
                                             .and_then(|profile_anal| {
                                                 let ccl = profile_anal
-                                                    .get_index(ParcelIndex::LCLHeightAGL)
-                                                    .map(|ccl| ccl.round() as i32);
+                                                    .lcl_height_agl()
+                                                    .map(|ccl| ccl.unpack().round() as i32);
                                                 let el = profile_anal
-                                                    .get_index(ParcelIndex::ELHeightASL)
-                                                    .map(|el| el.round() as i32);
+                                                    .el_height_asl()
+                                                    .map(|el| el.unpack().round() as i32);
 
                                                 Some((ccl, el))
                                             })
@@ -407,14 +405,21 @@ fn start_cli_stats_thread(
                                     }
                                 };
 
-                                let dcp = dcape(snd).ok().map(|(_, dcp, _)| dcp.round() as i32);
+                                let dcp = dcape(snd)
+                                    .ok()
+                                    .map(|(_, dcp, _)| dcp.unpack().round() as i32);
 
-                                let sfc_wspd_kt = snd
-                                    .get_surface_value(Surface::WindSpeed)
-                                    .map(|spd| spd as i32);
-                                let sfc_wdir = snd
-                                    .get_surface_value(Surface::WindDirection)
-                                    .map(|dir| dir as i32);
+                                let (sfc_wspd_kt, sfc_wdir) = snd
+                                    .sfc_wind()
+                                    .into_option()
+                                    .map(|wind| {
+                                        let WindSpdDir {
+                                            speed: Knots(spd),
+                                            direction: dir,
+                                        } = wind;
+                                        (Some(spd.round() as i32), Some(dir.round() as i32))
+                                    })
+                                    .unwrap_or_else(|| (None, None));
 
                                 let message = StatsRecord::CliData {
                                     site: site.clone(),
@@ -489,15 +494,19 @@ fn start_location_stats_thread(
                 {
                     if anal
                         .sounding()
-                        .get_lead_time()
+                        .lead_time()
                         .into_option()
                         .map(|lt| lt == 0)
                         .unwrap_or(true)
                     {
                         let snd = anal.sounding();
 
-                        let location = snd.get_station_info().location();
-                        let elevation = snd.get_station_info().elevation().into_option();
+                        let location = snd.station_info().location();
+                        let elevation = snd
+                            .station_info()
+                            .elevation()
+                            .into_option()
+                            .map(Quantity::unpack);
 
                         if let (Some(elev_m), Some((lat, lon))) = (elevation, location) {
                             let message = StatsRecord::Location {

@@ -1,11 +1,13 @@
 use bfkmd::{bail, parse_date_string};
 use bufkit_data::{Archive, Model};
 use clap::ArgMatches;
-use std::error::Error;
-use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use std::{
+    error::Error,
+    fs::File,
+    io::{BufWriter, Write},
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 pub fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(root)?;
@@ -44,7 +46,7 @@ pub fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error
     let start_date = if let Some(start_date) = sub_args.value_of("start") {
         parse_date_string(start_date)
     } else {
-        match arch.most_recent_valid_time(site, model) {
+        match arch.most_recent_init_time(site, model) {
             Ok(vt) => vt,
             Err(_) => bail(&format!("No data for site {} and model {}.", site, model)),
         }
@@ -53,7 +55,7 @@ pub fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error
     let end_date = if let Some(end_date) = sub_args.value_of("end") {
         parse_date_string(end_date)
     } else if sub_args.is_present("start") {
-        arch.most_recent_valid_time(site, model)?
+        arch.most_recent_init_time(site, model)?
     } else {
         start_date
     };
@@ -64,7 +66,7 @@ pub fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error
         }
 
         let save_path = target.join(arch.file_name(site, model, &init_time));
-        let data = arch.retrieve(site, model, &init_time)?;
+        let data = arch.retrieve(site, model, init_time)?;
         let f = File::create(save_path)?;
         let mut bw = BufWriter::new(f);
         bw.write_all(data.as_bytes())?;

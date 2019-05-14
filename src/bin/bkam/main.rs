@@ -1,17 +1,7 @@
 //! BufKit Archive Manager
-extern crate bfkmd;
-extern crate bufkit_data;
-extern crate chrono;
-#[macro_use]
-extern crate clap;
-extern crate dirs;
-extern crate sounding_bufkit;
-extern crate strum;
-
-use clap::{App, Arg, SubCommand};
+use clap::{crate_version, App, Arg, SubCommand};
 use dirs::home_dir;
-use std::error::Error;
-use std::path::PathBuf;
+use std::{error::Error, path::PathBuf};
 
 mod create;
 mod export;

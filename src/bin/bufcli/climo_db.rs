@@ -2,9 +2,11 @@ use bufkit_data::{Model, Site};
 use chrono::{Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, Statement, NO_PARAMS};
-use std::error::Error;
-use std::fs::create_dir;
-use std::path::{Path, PathBuf};
+use std::{
+    error::Error,
+    fs::create_dir,
+    path::{Path, PathBuf},
+};
 use strum::AsStaticRef;
 
 pub struct ClimoDB {

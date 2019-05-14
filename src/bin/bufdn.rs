@@ -1,33 +1,23 @@
 //! Bufkit Downloader.
 //!
 //! Downloads Bufkit files and stores them in your archive.
-
-extern crate bfkmd;
-extern crate bufkit_data;
-extern crate chrono;
-#[macro_use]
-extern crate clap;
-extern crate crossbeam_channel;
-extern crate dirs;
-#[macro_use]
-extern crate itertools;
-extern crate reqwest;
-extern crate rusqlite;
-extern crate strum;
-
 use bfkmd::parse_date_string;
 use bufkit_data::{Archive, BufkitDataErr, Model};
 use chrono::{Datelike, Duration, NaiveDateTime, Timelike, Utc};
-use clap::{App, Arg, ArgMatches};
+use clap::{crate_version, App, Arg, ArgMatches};
 use crossbeam_channel as channel;
 use dirs::home_dir;
+use itertools::iproduct;
 use reqwest::{Client, StatusCode};
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-use std::error::Error;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use std::thread::{spawn, JoinHandle};
+use sounding_bufkit::BufkitData;
+use std::{
+    error::Error,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    str::FromStr,
+    thread::{spawn, JoinHandle},
+};
 use strum::IntoEnumIterator;
 
 static HOST_URL: &str = "http://mtarchive.geol.iastate.edu/";
@@ -168,35 +158,49 @@ fn run() -> Result<(), Box<dyn Error>> {
     save_tx = tx_rx.0;
     print_rx = tx_rx.1;
 
-    // The file download thread
-    let download_handle: JoinHandle<Result<(), String>> = spawn(move || {
-        let client = Client::new();
+    let make_download_thread = || -> JoinHandle<Result<(), String>> {
+        let dl_rx = dl_rx.clone();
+        let dl_tx = dl_tx.clone();
+        spawn(move || {
+            let client = Client::new();
 
-        for vals in dl_rx {
-            let (site, model, init_time, url) = vals;
+            for vals in dl_rx {
+                let (site, model, init_time, url) = vals;
 
-            let download_result = match client.get(&url).send() {
-                Ok(ref mut response) => match response.status() {
-                    StatusCode::OK => {
-                        let mut buffer = String::new();
-                        match response.read_to_string(&mut buffer) {
-                            Ok(_) => StepResult::BufkitFileAsString(buffer),
-                            Err(err) => StepResult::OtherDownloadError(err.to_string()),
+                let download_result = match client.get(&url).send() {
+                    Ok(ref mut response) => match response.status() {
+                        StatusCode::OK => {
+                            let mut buffer = String::new();
+                            match response.read_to_string(&mut buffer) {
+                                Ok(_) => StepResult::BufkitFileAsString(buffer),
+                                Err(err) => StepResult::OtherDownloadError(err.to_string()),
+                            }
                         }
-                    }
-                    StatusCode::NOT_FOUND => StepResult::URLNotFound(url),
-                    code => StepResult::OtherURLStatus(url, code),
-                },
-                Err(err) => StepResult::OtherDownloadError(err.to_string()),
-            };
+                        StatusCode::NOT_FOUND => StepResult::URLNotFound(url),
+                        code => StepResult::OtherURLStatus(url, code),
+                    },
+                    Err(err) => StepResult::OtherDownloadError(err.to_string()),
+                };
 
-            dl_tx
-                .send((site, model, init_time, download_result))
-                .map_err(|err| format!("{}", err))?;
-        }
+                dl_tx
+                    .send((site, model, init_time, download_result))
+                    .map_err(|err| format!("{}", err))?;
+            }
 
-        Ok(())
-    });
+            Ok(())
+        })
+    };
+
+    // The file download threads
+    let mut download_handles: [Option<JoinHandle<Result<(), String>>>; 3] = [
+        Some(make_download_thread()),
+        Some(make_download_thread()),
+        Some(make_download_thread()),
+    ];
+    // Drop these, they were cloned into the downloads thread. Dropping allows the channels to
+    // close automatically and for shutdown to occur gracefully.
+    drop(dl_tx);
+    drop(dl_rx);
 
     // The db writer thread
     let writer_handle: JoinHandle<Result<(), String>> = spawn(move || {
@@ -205,7 +209,20 @@ fn run() -> Result<(), Box<dyn Error>> {
         for (site, model, init_time, download_res) in save_rx {
             let save_res = match download_res {
                 StepResult::BufkitFileAsString(data) => {
-                    match arch.add(&site, model, &init_time, &data) {
+                    let bufkit_data = BufkitData::init(&data, "").map_err(|err| err.to_string())?;
+
+                    let anal = bufkit_data
+                        .into_iter()
+                        .nth(0)
+                        .ok_or("No soundings in file")?;
+                    let init_time = anal.sounding().valid_time().ok_or("Missing valid time")?;
+
+                    let anal = bufkit_data
+                        .into_iter()
+                        .last()
+                        .ok_or("No soundings in file")?;
+                    let end_time = anal.sounding().valid_time().ok_or("Missing valid time")?;
+                    match arch.add(&site, model, init_time, end_time, &data) {
                         Ok(_) => StepResult::Success,
                         Err(err) => StepResult::ArhciveError(err.to_string()),
                     }
@@ -281,7 +298,9 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
         });
 
-    download_handle.join().unwrap()?;
+    for download_handle in download_handles.iter_mut() {
+        download_handle.take().unwrap().join().unwrap()?;
+    }
     writer_handle.join().unwrap()?;
     finalize_handle.join().unwrap()?;
 
@@ -295,14 +314,14 @@ fn build_download_list<'a>(
     let mut sites: Vec<String> = arg_matches
         .values_of("sites")
         .into_iter()
-        .flat_map(|site_iter| site_iter.map(|arg_val| arg_val.to_owned()))
+        .flat_map(|site_iter| site_iter.map(ToOwned::to_owned))
         .collect();
 
     let mut models: Vec<Model> = arg_matches
         .values_of("models")
         .into_iter()
         .flat_map(|model_iter| model_iter.map(Model::from_str))
-        .filter_map(|res| res.ok())
+        .filter_map(Result::ok)
         .collect();
 
     let days_back = arg_matches
@@ -381,7 +400,6 @@ fn build_url(
         (Model::NAM, 6) | (Model::NAM, 18) => "namm",
         (Model::NAM, _) => "nam",
         (Model::NAM4KM, _) => "nam4km",
-        _ => Err("Invalid model for download")?,
     };
 
     let remote_file_name = remote_model.to_string() + "_" + &site + ".buf";

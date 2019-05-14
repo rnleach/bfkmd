@@ -247,7 +247,7 @@ impl TablePrinter {
         )?;
 
         // print rows
-        let num_rows = self.columns.iter().map(|col| col.len()).max().unwrap_or(0);
+        let num_rows = self.columns.iter().map(Vec::len).max().unwrap_or(0);
         for i in 0..num_rows {
             for (column, col_width) in self.columns.iter().zip(&col_widths) {
                 let val = column.get(i).unwrap_or(&self.fill);

@@ -1,33 +1,14 @@
 //! firebuf - Calculate fire weather indicies from soundings in your Bufkit Archive.
-
-extern crate bfkmd;
-extern crate bufkit_data;
-extern crate chrono;
-#[macro_use]
-extern crate clap;
-extern crate csv;
-extern crate dirs;
-extern crate sounding_analysis;
-extern crate sounding_base;
-extern crate sounding_bufkit;
-extern crate strum;
-#[macro_use]
-extern crate strum_macros;
-extern crate textplots;
-
 use bfkmd::{bail, parse_date_string, TablePrinter};
 use bufkit_data::{Archive, Model};
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
-use clap::{App, Arg};
+use clap::{crate_version, App, Arg};
 use dirs::home_dir;
 use sounding_base::Sounding;
 use sounding_bufkit::BufkitData;
-use std::collections::HashMap;
-use std::error::Error;
-use std::fs::File;
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::{collections::HashMap, error::Error, fs::File, path::PathBuf, str::FromStr};
 use strum::{AsStaticRef, IntoEnumIterator};
+use strum_macros::{AsStaticStr, EnumIter, EnumString};
 use textplots::{Chart, Plot, Shape};
 
 fn main() {
@@ -62,7 +43,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 continue;
             }
 
-            let latest = vec![arch.most_recent_valid_time(site, *model)?];
+            let latest = vec![arch.most_recent_init_time(site, *model)?];
 
             let init_times = if args.init_times.is_empty() {
                 &latest
@@ -70,7 +51,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 &args.init_times
             };
 
-            for init_time in init_times {
+            for &init_time in init_times {
                 let stats = &match calculate_stats(arch, site, *model, init_time, g_stats, t_stats)
                 {
                     Ok(stats) => stats,
@@ -253,7 +234,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
     let mut sites: Vec<String> = matches
         .values_of("sites")
         .into_iter()
-        .flat_map(|site_iter| site_iter.map(|arg_val| arg_val.to_owned()))
+        .flat_map(|site_iter| site_iter.map(ToOwned::to_owned))
         .collect();
 
     if sites.is_empty() {
@@ -270,7 +251,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .values_of("models")
         .into_iter()
         .flat_map(|model_iter| model_iter.map(Model::from_str))
-        .filter_map(|res| res.ok())
+        .filter_map(Result::ok)
         .collect();
 
     if models.is_empty() {
@@ -281,7 +262,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .values_of("table-stats")
         .into_iter()
         .flat_map(|stat_iter| stat_iter.map(TableStatArg::from_str))
-        .filter_map(|res| res.ok())
+        .filter_map(Result::ok)
         .collect();
 
     if table_stats.is_empty() {
@@ -293,7 +274,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .values_of("graph-stats")
         .into_iter()
         .flat_map(|stat_iter| stat_iter.map(GraphStatArg::from_str))
-        .filter_map(|res| res.ok())
+        .filter_map(Result::ok)
         .collect();
 
     if graph_stats.is_empty() {
@@ -367,13 +348,13 @@ fn calculate_stats(
     arch: &Archive,
     site: &str,
     model: Model,
-    init_time: &NaiveDateTime,
+    init_time: NaiveDateTime,
     g_stats: &[GraphStatArg],
     t_stats: &[TableStatArg],
 ) -> Result<ModelStats, Box<dyn Error>> {
     let analysis = arch.retrieve(site, model, init_time)?;
 
-    let analysis = BufkitData::new(&analysis)?;
+    let analysis = BufkitData::init(&analysis, "")?;
 
     let mut model_stats = ModelStats::new();
 
@@ -381,7 +362,7 @@ fn calculate_stats(
     for anal in &analysis {
         let sounding = anal.sounding();
 
-        let valid_time = if let Some(valid_time) = sounding.get_valid_time() {
+        let valid_time = if let Some(valid_time) = sounding.valid_time() {
             valid_time
         } else {
             continue;
@@ -405,10 +386,10 @@ fn calculate_stats(
 
             let stat = match graph_stat {
                 Hdw => sounding_analysis::hot_dry_windy(sounding),
-                HainesLow => sounding_analysis::haines_low(sounding),
-                HainesMid => sounding_analysis::haines_mid(sounding),
-                HainesHigh => sounding_analysis::haines_high(sounding),
-                AutoHaines => sounding_analysis::haines(sounding),
+                HainesLow => sounding_analysis::haines_low(sounding).map(f64::from),
+                HainesMid => sounding_analysis::haines_mid(sounding).map(f64::from),
+                HainesHigh => sounding_analysis::haines_high(sounding).map(f64::from),
+                AutoHaines => sounding_analysis::haines(sounding).map(f64::from),
                 None => continue,
             };
             let stat = match stat {
@@ -442,14 +423,14 @@ fn calculate_stats(
             let stat_func: &Fn(&Sounding) -> Result<f64, _> = match table_stat {
                 Hdw => &sounding_analysis::hot_dry_windy,
                 MaxHdw => &sounding_analysis::hot_dry_windy,
-                HainesLow => &sounding_analysis::haines_low,
-                MaxHainesLow => &sounding_analysis::haines_low,
-                HainesMid => &sounding_analysis::haines_mid,
-                MaxHainesMid => &sounding_analysis::haines_mid,
-                HainesHigh => &sounding_analysis::haines_high,
-                MaxHainesHigh => &sounding_analysis::haines_high,
-                AutoHaines => &sounding_analysis::haines,
-                MaxAutoHaines => &sounding_analysis::haines,
+                HainesLow => &|snd| sounding_analysis::haines_low(snd).map(f64::from),
+                MaxHainesLow => &|snd| sounding_analysis::haines_low(snd).map(f64::from),
+                HainesMid => &|snd| sounding_analysis::haines_mid(snd).map(f64::from),
+                MaxHainesMid => &|snd| sounding_analysis::haines_mid(snd).map(f64::from),
+                HainesHigh => &|snd| sounding_analysis::haines_high(snd).map(f64::from),
+                MaxHainesHigh => &|snd| sounding_analysis::haines_high(snd).map(f64::from),
+                AutoHaines => &|snd| sounding_analysis::haines(snd).map(f64::from),
+                MaxAutoHaines => &|snd| sounding_analysis::haines(snd).map(f64::from),
                 TableStatArg::None => continue,
             };
             let stat = match stat_func(sounding) {
@@ -658,7 +639,7 @@ fn save_stats(
     let file = File::create(path)?;
     let mut wtr = csv::Writer::from_writer(file);
 
-    let mut stat_key_strings: Vec<&str> = g_stats.iter().map(|k| k.as_static()).collect();
+    let mut stat_key_strings: Vec<&str> = g_stats.iter().map(AsStaticRef::as_static).collect();
     stat_key_strings.insert(0, "Time");
 
     wtr.write_record(&stat_key_strings)?;

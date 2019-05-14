@@ -2,9 +2,7 @@ use bfkmd::bail;
 use bufkit_data::{Archive, BufkitDataErr, Model};
 use clap::ArgMatches;
 use sounding_bufkit::BufkitFile;
-use std::error::Error;
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::{error::Error, path::PathBuf, str::FromStr};
 
 pub fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(root)?;
@@ -39,10 +37,19 @@ pub fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error
             .ok_or(BufkitDataErr::NotEnoughData)?;
         let init_time = anal
             .sounding()
-            .get_valid_time()
+            .valid_time()
             .ok_or(BufkitDataErr::NotEnoughData)?;
 
-        arch.add(site, model, &init_time, f.raw_text())?;
+        let anal = data
+            .into_iter()
+            .last()
+            .ok_or(BufkitDataErr::NotEnoughData)?;
+        let end_time = anal
+            .sounding()
+            .valid_time()
+            .ok_or(BufkitDataErr::NotEnoughData)?;
+
+        arch.add(site, model, init_time, end_time, f.raw_text())?;
     }
 
     Ok(())

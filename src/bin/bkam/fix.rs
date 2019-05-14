@@ -1,7 +1,6 @@
 use bufkit_data::Archive;
 use clap::ArgMatches;
-use std::error::Error;
-use std::path::PathBuf;
+use std::{error::Error, path::PathBuf};
 
 pub fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     // Check that the root exists.

@@ -2,9 +2,7 @@ use bfkmd::TablePrinter;
 use bufkit_data::{Archive, BufkitDataErr, Model, Site, StateProv};
 use chrono::FixedOffset;
 use clap::ArgMatches;
-use std::error::Error;
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::{error::Error, path::PathBuf, str::FromStr};
 use strum::{AsStaticRef, IntoEnumIterator};
 
 pub fn sites(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {

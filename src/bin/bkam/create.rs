@@ -1,8 +1,7 @@
 use bufkit_data::Archive;
 use clap::ArgMatches;
 use dirs::home_dir;
-use std::error::Error;
-use std::path::PathBuf;
+use std::{error::Error, path::PathBuf};
 
 pub fn create(_root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let root = &sub_args

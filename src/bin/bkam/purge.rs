@@ -2,9 +2,8 @@ use bfkmd::parse_date_string;
 use bufkit_data::{Archive, Model};
 use chrono::{NaiveDate, Utc};
 use clap::ArgMatches;
-use std::error::Error;
-use std::path::PathBuf;
 use std::str::FromStr;
+use std::{error::Error, path::PathBuf};
 use strum::{AsStaticRef, IntoEnumIterator};
 
 pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
@@ -13,14 +12,14 @@ pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>
     let mut sites: Vec<String> = sub_args
         .values_of("sites")
         .into_iter()
-        .flat_map(|site_iter| site_iter.map(|arg_val| arg_val.to_owned()))
+        .flat_map(|site_iter| site_iter.map(ToOwned::to_owned))
         .collect();
 
     let mut models: Vec<Model> = sub_args
         .values_of("models")
         .into_iter()
         .flat_map(|model_iter| model_iter.map(Model::from_str))
-        .filter_map(|res| res.ok())
+        .filter_map(Result::ok)
         .collect();
 
     let after = sub_args
