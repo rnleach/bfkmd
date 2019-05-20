@@ -8,7 +8,6 @@ Cargo.lock
 #
 # General dev related
 #
-makefile
 *.sublime-*
 .vscode
 
