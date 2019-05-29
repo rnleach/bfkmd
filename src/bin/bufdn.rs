@@ -64,11 +64,19 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .help("Site identifiers (e.g. kord, katl, smn).")
                 .long_help(concat!(
                     "Site identifiers (e.g. kord, katl, smn). ",
-                    "If not specified, it will look in the database for sites configured for auto ",
+                    "If not specified, it will look in the index for sites configured for auto ",
                     "download and use all of them. If this is the first time downloading for this ",
-                    "site, then it won't be in the database yet and you will need to also specify ",
+                    "site, then it won't be in the index yet and you will need to also specify ",
                     "which models to download for the site."
                 )),
+        )
+        .arg(
+            Arg::with_name("all-sites")
+                .multiple(false)
+                .long("all-sites")
+                .takes_value(false)
+                .conflicts_with("sites")
+                .help("Try downloading for all sites in the index."),
         )
         .arg(
             Arg::with_name("models")
@@ -77,7 +85,10 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .long("models")
                 .takes_value(true)
                 .help("Allowable models for this operation/program.")
-                .long_help("Allowable models for this operation/program. Case insensitive."),
+                .long_help(concat!(
+                    "Allowable models for this operation/program. Case insensitive.",
+                    "If not specified, it will use all models available."
+                )),
         )
         .arg(
             Arg::with_name("days-back")
@@ -311,41 +322,42 @@ fn build_download_list<'a>(
     arg_matches: &'a ArgMatches,
     arch: &'a Archive,
 ) -> Result<impl Iterator<Item = (String, Model, NaiveDateTime)> + 'a, BufkitDataErr> {
-    let mut sites: Vec<String> = arg_matches
-        .values_of("sites")
-        .into_iter()
-        .flat_map(|site_iter| site_iter.map(ToOwned::to_owned))
-        .collect();
+    let mut auto_sites = false;
+    let mut auto_models = false;
 
-    let mut models: Vec<Model> = arg_matches
-        .values_of("models")
-        .into_iter()
-        .flat_map(|model_iter| model_iter.map(Model::from_str))
-        .filter_map(Result::ok)
-        .collect();
+    let sites: Vec<String> = if arg_matches.is_present("sites") {
+        arg_matches
+            .values_of("sites")
+            .into_iter()
+            .flat_map(|site_iter| site_iter.map(ToOwned::to_owned))
+            .collect()
+    } else if arg_matches.is_present("all-sites") {
+        arch.sites()?.into_iter().map(|site| site.id).collect()
+    } else {
+        auto_sites = true;
+        arch.sites()?
+            .into_iter()
+            .filter(|s| s.auto_download)
+            .map(|site| site.id)
+            .collect()
+    };
+
+    let models: Vec<Model> = if arg_matches.is_present("models") {
+        arg_matches
+            .values_of("models")
+            .into_iter()
+            .flat_map(|model_iter| model_iter.map(Model::from_str))
+            .filter_map(Result::ok)
+            .collect()
+    } else {
+        auto_models = true;
+        Model::iter().collect()
+    };
 
     let days_back = arg_matches
         .value_of("days-back")
         .and_then(|val| val.parse::<i64>().ok())
         .unwrap_or(DEFAULT_DAYS_BACK);
-
-    let mut auto_sites = false;
-    let mut auto_models = false;
-
-    if sites.is_empty() {
-        sites = arch
-            .sites()?
-            .into_iter()
-            .filter(|s| s.auto_download)
-            .map(|site| site.id)
-            .collect();
-        auto_sites = true;
-    }
-
-    if models.is_empty() {
-        models = Model::iter().collect();
-        auto_models = true;
-    }
 
     let mut end = Utc::now().naive_utc() - Duration::hours(2);
     let mut start = Utc::now().naive_utc() - Duration::days(days_back);

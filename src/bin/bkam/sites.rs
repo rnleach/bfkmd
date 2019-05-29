@@ -85,14 +85,13 @@ fn sites_list(
     //
     let mut master_list = arch.sites()?;
     master_list.sort_unstable_by(|left, right| {
-        match (left.state.map(|l| l.as_static()), right.state.map(|r| r.as_static())) {
-            (Some(left_st), Some(right_st)) => {
-                match left_st.cmp(right_st) {
-                    std::cmp::Ordering::Equal => {
-                        left.id.cmp(&right.id)
-                    },
-                    non_equal_states => non_equal_states,
-                }
+        match (
+            left.state.map(|l| l.as_static()),
+            right.state.map(|r| r.as_static()),
+        ) {
+            (Some(left_st), Some(right_st)) => match left_st.cmp(right_st) {
+                std::cmp::Ordering::Equal => left.id.cmp(&right.id),
+                non_equal_states => non_equal_states,
             },
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,

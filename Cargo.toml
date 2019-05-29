@@ -3,6 +3,7 @@ name = "bfkmd"
 version = "0.1.0"
 authors = ["Ryan <rnleach@users.noreply.github.com>"]
 edition = "2018"
+publish = false
 
 [dependencies]
 bufkit-data = "0.8.1"
