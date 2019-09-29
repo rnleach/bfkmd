@@ -420,7 +420,7 @@ fn calculate_stats(
                 }
             };
 
-            let stat_func: &Fn(&Sounding) -> Result<f64, _> = match table_stat {
+            let stat_func: &dyn Fn(&Sounding) -> Result<f64, _> = match table_stat {
                 Hdw => &sounding_analysis::hot_dry_windy,
                 MaxHdw => &sounding_analysis::hot_dry_windy,
                 HainesLow => &|snd| sounding_analysis::haines_low(snd).map(f64::from),
@@ -438,7 +438,7 @@ fn calculate_stats(
                 Err(_) => ::std::f64::NAN,
             };
 
-            let selector: &Fn((f64, u32), (f64, u32)) -> (f64, u32) = match table_stat {
+            let selector: &dyn Fn((f64, u32), (f64, u32)) -> (f64, u32) = match table_stat {
                 Hdw => &zero_z,
                 MaxHdw => &max,
                 HainesLow => &zero_z,

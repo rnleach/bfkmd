@@ -41,7 +41,7 @@ fn sites_list(
             None => false,
         }
     };
-    let in_state_pred: &Fn(&Site) -> bool = if sub_sub_args.is_present("state") {
+    let in_state_pred: &dyn Fn(&Site) -> bool = if sub_sub_args.is_present("state") {
         state_filter
     } else {
         pass
@@ -51,7 +51,7 @@ fn sites_list(
     // Filter for missing any data
     //
     let missing_any = &|site: &Site| -> bool { site.name.is_none() || site.state.is_none() };
-    let missing_any_pred: &Fn(&Site) -> bool = if sub_sub_args.is_present("missing-data") {
+    let missing_any_pred: &dyn Fn(&Site) -> bool = if sub_sub_args.is_present("missing-data") {
         missing_any
     } else {
         pass
@@ -61,7 +61,7 @@ fn sites_list(
     // Filter for missing state
     //
     let missing_state = &|site: &Site| -> bool { site.state.is_none() };
-    let missing_state_pred: &Fn(&Site) -> bool = if sub_sub_args.is_present("missing-state") {
+    let missing_state_pred: &dyn Fn(&Site) -> bool = if sub_sub_args.is_present("missing-state") {
         missing_state
     } else {
         pass
@@ -72,7 +72,7 @@ fn sites_list(
     //
     let auto_download = &|site: &Site| -> bool { site.auto_download };
     let no_auto_download = &|site: &Site| -> bool { !site.auto_download };
-    let auto_download_pred: &Fn(&Site) -> bool = if sub_sub_args.is_present("auto-download") {
+    let auto_download_pred: &dyn Fn(&Site) -> bool = if sub_sub_args.is_present("auto-download") {
         auto_download
     } else if sub_sub_args.is_present("no-auto-download") {
         no_auto_download

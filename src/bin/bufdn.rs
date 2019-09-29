@@ -40,11 +40,12 @@ fn main() {
 
 // Result from a single step in the processing chain
 enum StepResult {
-    BufkitFileAsString(String),         // Data
+    BufkitFileAsString(String, String), // Data, URL
     URLNotFound(String),                // URL
     OtherURLStatus(String, StatusCode), // URL, status code
     OtherDownloadError(String),         // Any other error downloading
-    ArhciveError(String),               // Error adding it to the archive
+    ParseError(String, String),         // An error during parsing, original URL
+    ArchiveError(String),               // Error adding it to the archive
     Success,                            // File added to the archive
 }
 
@@ -183,7 +184,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                         StatusCode::OK => {
                             let mut buffer = String::new();
                             match response.read_to_string(&mut buffer) {
-                                Ok(_) => StepResult::BufkitFileAsString(buffer),
+                                Ok(_) => StepResult::BufkitFileAsString(buffer, url),
                                 Err(err) => StepResult::OtherDownloadError(err.to_string()),
                             }
                         }
@@ -219,25 +220,37 @@ fn run() -> Result<(), Box<dyn Error>> {
 
         for (site, model, init_time, download_res) in save_rx {
             let save_res = match download_res {
-                StepResult::BufkitFileAsString(data) => {
-                    let bufkit_data = BufkitData::init(&data, "").map_err(|err| err.to_string())?;
+                StepResult::BufkitFileAsString(data, url) => match BufkitData::init(&data, "") {
+                    Ok(bufkit_data) => {
+                        let init_time_res = bufkit_data
+                            .into_iter()
+                            .nth(0)
+                            .ok_or("No soundings in file")
+                            .and_then(|anal| {
+                                anal.sounding().valid_time().ok_or("Missing valid time")
+                            });
+                        let end_time_res = bufkit_data
+                            .into_iter()
+                            .last()
+                            .ok_or("No soundings in file")
+                            .and_then(|anal| {
+                                anal.sounding().valid_time().ok_or("Missing valid time")
+                            });
 
-                    let anal = bufkit_data
-                        .into_iter()
-                        .nth(0)
-                        .ok_or("No soundings in file")?;
-                    let init_time = anal.sounding().valid_time().ok_or("Missing valid time")?;
-
-                    let anal = bufkit_data
-                        .into_iter()
-                        .last()
-                        .ok_or("No soundings in file")?;
-                    let end_time = anal.sounding().valid_time().ok_or("Missing valid time")?;
-                    match arch.add(&site, model, init_time, end_time, &data) {
-                        Ok(_) => StepResult::Success,
-                        Err(err) => StepResult::ArhciveError(err.to_string()),
+                        init_time_res
+                            .and_then(|init_time| {
+                                end_time_res.map(|end_time| (init_time, end_time))
+                            })
+                            .map_err(|err| StepResult::ParseError(err.to_string(), url))
+                            .and_then(|(init_time, end_time)| {
+                                arch.add(&site, model, init_time, end_time, &data)
+                                    .map_err(|err| StepResult::ArchiveError(err.to_string()))
+                            })
+                            .map(|_| StepResult::Success)
+                            .unwrap_or_else(|err| err)
                     }
-                }
+                    Err(err) => StepResult::ParseError(err.to_string(), url),
+                },
                 _ => download_res,
             };
 
@@ -269,9 +282,16 @@ fn run() -> Result<(), Box<dyn Error>> {
                     }
                     writeln!(lock, "URL does not exist: {}", url).map_err(|err| err.to_string())?
                 }
+                ParseError(ref msg, ref url) => {
+                    if init_time < too_old_to_be_missing {
+                        missing_urls.add_url(url).map_err(|err| err.to_string())?;
+                    }
+                    writeln!(lock, "Corrupt file at URL ({}): {}", msg, url)
+                        .map_err(|err| err.to_string())?
+                }
                 OtherURLStatus(url, code) => writeln!(lock, "  HTTP error ({}): {}.", code, url)
                     .map_err(|err| err.to_string())?,
-                OtherDownloadError(err) | ArhciveError(err) => {
+                OtherDownloadError(err) | ArchiveError(err) => {
                     writeln!(lock, "  {}", err).map_err(|err| err.to_string())?
                 }
                 Success => writeln!(lock, "Success for {:>4} {:^6} {}.", site, model, init_time)
