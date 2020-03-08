@@ -4,7 +4,7 @@ use chrono::{NaiveDate, Utc};
 use clap::ArgMatches;
 use std::str::FromStr;
 use std::{error::Error, path::PathBuf};
-use strum::{AsStaticRef, IntoEnumIterator};
+use strum::IntoEnumIterator;
 
 pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(root)?;
@@ -50,7 +50,7 @@ pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>
             let all_runs = model.all_runs(&after, &before);
 
             for run in all_runs {
-                println!("  Removing {} {} {}.", site, model.as_static(), run);
+                println!("  Removing {} {} {}.", site, model.as_static_str(), run);
                 if let Ok(()) = arch.remove(site, model, &run) {}
             }
         }

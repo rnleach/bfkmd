@@ -35,19 +35,13 @@ pub fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error
             .into_iter()
             .nth(0)
             .ok_or(BufkitDataErr::NotEnoughData)?;
-        let init_time = anal
-            .sounding()
-            .valid_time()
-            .ok_or(BufkitDataErr::NotEnoughData)?;
+        let init_time = anal.0.valid_time().ok_or(BufkitDataErr::NotEnoughData)?;
 
         let anal = data
             .into_iter()
             .last()
             .ok_or(BufkitDataErr::NotEnoughData)?;
-        let end_time = anal
-            .sounding()
-            .valid_time()
-            .ok_or(BufkitDataErr::NotEnoughData)?;
+        let end_time = anal.0.valid_time().ok_or(BufkitDataErr::NotEnoughData)?;
 
         arch.add(site, model, init_time, end_time, f.raw_text())?;
     }

@@ -3,7 +3,7 @@ use bufkit_data::{Archive, BufkitDataErr, Model, Site, StateProv};
 use chrono::FixedOffset;
 use clap::ArgMatches;
 use std::{error::Error, path::PathBuf, str::FromStr};
-use strum::{AsStaticRef, IntoEnumIterator};
+use strum::IntoEnumIterator;
 
 pub fn sites(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     match sub_args.subcommand() {
@@ -86,8 +86,8 @@ fn sites_list(
     let mut master_list = arch.sites()?;
     master_list.sort_unstable_by(|left, right| {
         match (
-            left.state.map(|l| l.as_static()),
-            right.state.map(|r| r.as_static()),
+            left.state.map(|l| l.as_static_str()),
+            right.state.map(|r| r.as_static_str()),
         ) {
             (Some(left_st), Some(right_st)) => match left_st.cmp(right_st) {
                 std::cmp::Ordering::Equal => left.id.cmp(&right.id),
@@ -127,7 +127,7 @@ fn sites_list(
 
     for site in sites_iter() {
         let id = &site.id;
-        let state = site.state.map(|st| st.as_static()).unwrap_or(&"-");
+        let state = site.state.map(|st| st.as_static_str()).unwrap_or(&"-");
         let name = site.name.as_ref().unwrap_or(&blank);
         let offset = site
             .time_zone
@@ -138,7 +138,7 @@ fn sites_list(
         let models = arch
             .models(id)?
             .into_iter()
-            .map(|mdl| mdl.as_static().to_owned())
+            .map(|mdl| mdl.as_static_str().to_owned())
             .collect::<Vec<String>>()
             .join(",");
         let row = vec![
@@ -222,7 +222,7 @@ fn sites_inventory(
             Err(BufkitDataErr::NotEnoughData) => {
                 println!(
                     "No data for model {} and site {}.",
-                    model.as_static(),
+                    model.as_static_str(),
                     site.to_uppercase()
                 );
                 continue;

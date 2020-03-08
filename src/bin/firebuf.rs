@@ -4,7 +4,7 @@ use bufkit_data::{Archive, Model};
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use clap::{crate_version, App, Arg};
 use dirs::home_dir;
-use sounding_base::Sounding;
+use sounding_analysis::Sounding;
 use sounding_bufkit::BufkitData;
 use std::{collections::HashMap, error::Error, fs::File, path::PathBuf, str::FromStr};
 use strum::{AsStaticRef, IntoEnumIterator};
@@ -39,7 +39,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     for site in &args.sites {
         for model in &args.models {
             if !arch.models(site)?.contains(&model) {
-                println!("No data in archive for {} at {}.", model.as_static(), site);
+                println!(
+                    "No data in archive for {} at {}.",
+                    model.as_static_str(),
+                    site
+                );
                 continue;
             }
 
@@ -93,7 +97,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .takes_value(true)
                 .possible_values(
                     &Model::iter()
-                        .map(|val| val.as_static())
+                        .map(|val| val.as_static_str())
                         .collect::<Vec<&str>>(),
                 )
                 .help("Allowable models for this operation/program.")
@@ -360,7 +364,7 @@ fn calculate_stats(
 
     let mut curr_time: Option<NaiveDateTime> = None;
     for anal in &analysis {
-        let sounding = anal.sounding();
+        let sounding = &anal.0;
 
         let valid_time = if let Some(valid_time) = sounding.valid_time() {
             valid_time
@@ -634,7 +638,7 @@ fn save_stats(
 
     let init_time_str = &vts[0].format("_%Y%m%d%H").to_string();
 
-    let file_name = String::new() + site + "_" + model.as_static() + init_time_str + ".csv";
+    let file_name = String::new() + site + "_" + model.as_static_str() + init_time_str + ".csv";
     let path = save_dir.join(&file_name);
     let file = File::create(path)?;
     let mut wtr = csv::Writer::from_writer(file);
