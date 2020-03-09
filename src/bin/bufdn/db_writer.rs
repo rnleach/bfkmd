@@ -14,8 +14,8 @@ pub fn start_writer_thread(
     curr_dir: Option<PathBuf>,
     save_rx: channel::Receiver<StepResult>,
     save_tx: channel::Sender<StepResult>,
-) -> () {
-    spawn(move || -> () {
+) {
+    spawn(move || {
         let arch = match Archive::connect(&root) {
             Ok(arch) => arch,
             Err(err) => {

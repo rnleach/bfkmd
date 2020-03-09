@@ -92,7 +92,7 @@ impl TablePrinter {
         let title_width = self
             .title
             .as_ref()
-            .and_then(|title| Some(UnicodeWidthStr::width(title.as_str()) + 2))
+            .map(|title| UnicodeWidthStr::width(title.as_str()) + 2)
             .unwrap_or(0);
 
         let mut table_width = if min_width > title_width {

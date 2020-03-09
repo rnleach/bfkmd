@@ -7,7 +7,7 @@ pub fn create(_root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Erro
     let root = &sub_args
         .value_of("archive_root")
         .map(PathBuf::from)
-        .or_else(|| home_dir().and_then(|hd| Some(hd.join("bufkit"))))
+        .or_else(|| home_dir().map(|hd| hd.join("bufkit")))
         .expect("Invalid root.");
     // Check if the archive already exists. (try connecting to it)
     let already_exists: bool = Archive::connect(root).is_ok();

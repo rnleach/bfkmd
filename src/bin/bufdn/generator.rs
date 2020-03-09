@@ -6,12 +6,7 @@ use chrono::{Datelike, Duration, NaiveDateTime, Timelike, Utc};
 use clap::ArgMatches;
 use crossbeam_channel as channel;
 use itertools::iproduct;
-use std::{
-    error::Error,
-    path::{Path, PathBuf},
-    str::FromStr,
-    thread::spawn,
-};
+use std::{error::Error, ops::Deref, path::PathBuf, str::FromStr, thread::spawn};
 use strum::IntoEnumIterator;
 
 pub fn start_generator_thread<'a>(
@@ -69,7 +64,7 @@ pub fn start_generator_thread<'a>(
         end = parse_date_string(end_date);
     }
 
-    spawn(move || -> () {
+    spawn(move || {
         let missing_urls = match MissingUrlDb::open_or_create_404_db(&root) {
             Ok(missing_urls) => missing_urls,
             Err(err) => {
@@ -80,7 +75,7 @@ pub fn start_generator_thread<'a>(
             }
         };
 
-        let iter = match build_download_list(&sites, &models, start, end, &root) {
+        let iter = match build_download_list(&sites, &models, start, end) {
             Ok(iter) => iter,
             Err(err) => {
                 generator_tx
@@ -130,26 +125,23 @@ fn build_download_list<'a>(
     models: &'a [Model],
     start: NaiveDateTime,
     end: NaiveDateTime,
-    root: &'a Path,
 ) -> Result<impl Iterator<Item = (String, Model, NaiveDateTime)> + 'a, BufkitDataErr> {
-    let arch = Archive::connect(&root)?;
-    Ok(iproduct!(sites, models)
-        .filter(move |(site, model)| {
-            arch.models(site)
-                .map(|vec| vec.contains(model))
-                .unwrap_or(false)
-        })
-        .flat_map(move |(site, model)| {
-            model
-                .all_runs(&(start - Duration::hours(model.hours_between_runs())), &end)
-                .map(move |init_time| (site.to_uppercase(), *model, init_time))
-        }))
+    Ok(iproduct!(sites, models).flat_map(move |(site, model)| {
+        model
+            .all_runs(&(start - Duration::hours(model.hours_between_runs())), &end)
+            .map(move |init_time| (site.to_uppercase(), *model, init_time))
+    }))
 }
 
 fn invalid_combination(site: &str, model: Model) -> bool {
-    match site {
-        "lrr" | "c17" | "s06" => model == Model::NAM || model == Model::NAM4KM,
-        "mrp" | "hmm" | "bon" => model == Model::GFS,
+    let site: String = site.to_lowercase();
+
+    match site.deref() {
+        "bam" | "c17" | "lrr" | "s06" | "ssy" | "xkza" | "xxpn" => {
+            model == Model::NAM || model == Model::NAM4KM
+        }
+        "bon" | "hmm" | "mrp" | "smb" | "win" => model == Model::GFS,
+        "wntr" => model == Model::GFS || model == Model::NAM4KM,
         "kfca" => model == Model::NAM || model == Model::NAM4KM,
         _ => false, // All other combinations are OK
     }

@@ -6,8 +6,8 @@ use std::{io::Read, thread::spawn};
 pub fn start_download_threads(
     dl_rx: channel::Receiver<StepResult>,
     dl_tx: channel::Sender<StepResult>,
-) -> () {
-    let make_download_thread = || -> () {
+) {
+    let make_download_thread = || {
         let dl_rx = dl_rx.clone();
         let dl_tx = dl_tx.clone();
 

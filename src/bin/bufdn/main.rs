@@ -41,7 +41,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let root = matches
         .value_of("root")
         .map(PathBuf::from)
-        .or_else(|| home_dir().and_then(|hd| Some(hd.join("bufkit"))))
+        .or_else(|| home_dir().map(|hd| hd.join("bufkit")))
         .expect("Invalid root.");
 
     let save_dir: Option<PathBuf> = matches.value_of("save-dir").map(PathBuf::from);
@@ -55,7 +55,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     db_writer::start_writer_thread(root.clone(), save_dir, save_rx, save_tx);
 
     let too_old_to_be_missing = Utc::now().naive_utc() - Duration::hours(27);
-    let missing_urls = MissingUrlDb::open_or_create_404_db(&root.clone())?;
+    let missing_urls = MissingUrlDb::open_or_create_404_db(&root)?;
 
     for step_result in print_rx {
         use crate::StepResult::*;

@@ -223,7 +223,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
     let root = matches
         .value_of("root")
         .map(PathBuf::from)
-        .or_else(|| home_dir().and_then(|hd| Some(hd.join("bufkit"))))
+        .or_else(|| home_dir().map(|hd| hd.join("bufkit")))
         .expect("Invalid root.");
     let root_clone = root.clone();
 
