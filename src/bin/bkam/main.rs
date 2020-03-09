@@ -27,7 +27,7 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let app = App::new("bkam")
-        .author("Ryan Leach <clumsycodemonkey@gmail.com>")
+        .author("Ryan Leach <rnleach@users.noreply.github.com>")
         .version(crate_version!())
         .about("Manage a Bufkit file archive.")
         .arg(

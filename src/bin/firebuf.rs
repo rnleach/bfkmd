@@ -78,7 +78,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
 fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
     let app = App::new("firebuf")
-        .author("Ryan Leach <clumsycodemonkey@gmail.com>")
+        .author("Ryan Leach <rnleach@users.noreply.github.com>")
         .version(crate_version!())
         .about("Fire weather analysis & summary.")
         .arg(

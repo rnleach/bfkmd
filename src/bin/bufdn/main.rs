@@ -100,7 +100,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
 fn parse_args() -> ArgMatches<'static> {
     App::new("bufdn")
-        .author("Ryan Leach <clumsycodemonkey@gmail.com>")
+        .author("Ryan Leach <rnleach@users.noreply.github.com>")
         .version(crate_version!())
         .about("Download data into your archive.")
         .arg(
