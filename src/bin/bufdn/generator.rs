@@ -128,7 +128,7 @@ fn build_download_list<'a>(
 ) -> Result<impl Iterator<Item = (String, Model, NaiveDateTime)> + 'a, BufkitDataErr> {
     Ok(iproduct!(sites, models).flat_map(move |(site, model)| {
         model
-            .all_runs(&(start - Duration::hours(model.hours_between_runs())), &end)
+            .all_runs(&end, &(start - Duration::hours(model.hours_between_runs())))
             .map(move |init_time| (site.to_uppercase(), *model, init_time))
     }))
 }
