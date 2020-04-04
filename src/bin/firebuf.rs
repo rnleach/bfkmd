@@ -1,6 +1,6 @@
 //! firebuf - Calculate fire weather indicies from soundings in your Bufkit Archive.
 use bfkmd::{bail, parse_date_string, TablePrinter};
-use bufkit_data::{Archive, Model};
+use bufkit_data::{Archive, Model, Site};
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use clap::{crate_version, App, Arg};
 use dirs::home_dir;
@@ -38,36 +38,36 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     for site in &args.sites {
         for model in &args.models {
-            if !arch.models(site)?.contains(&model) {
+            if !arch.models(&site.id)?.contains(&model) {
                 println!(
                     "No data in archive for {} at {}.",
                     model.as_static_str(),
-                    site
+                    &site.id
                 );
                 continue;
             }
 
-            let latest = vec![arch.most_recent_init_time(site, *model)?];
-
+            let latest;
             let init_times = if args.init_times.is_empty() {
+                latest = vec![arch.most_recent_init_time(&site.id, *model)?];
                 &latest
             } else {
                 &args.init_times
             };
 
             for &init_time in init_times {
-                let stats = &match calculate_stats(arch, site, *model, init_time, g_stats, t_stats)
-                {
-                    Ok(stats) => stats,
-                    Err(_) => continue,
-                };
+                let stats =
+                    &match calculate_stats(arch, &site.id, *model, init_time, g_stats, t_stats) {
+                        Ok(stats) => stats,
+                        Err(_) => continue,
+                    };
 
                 if args.print {
                     print_stats(site, *model, stats, g_stats, t_stats)?;
                 }
 
                 if let Some(ref path) = args.save_dir {
-                    save_stats(site, *model, stats, g_stats, t_stats, path)?;
+                    save_stats(&site.id, *model, stats, g_stats, t_stats, path)?;
                 }
             }
         }
@@ -235,20 +235,21 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         }
     }?;
 
-    let mut sites: Vec<String> = matches
+    let mut sites: Vec<Site> = matches
         .values_of("sites")
         .into_iter()
         .flat_map(|site_iter| site_iter.map(ToOwned::to_owned))
+        .filter_map(|site| match arch.site_info(&site).ok() {
+            exists @ Some(_) => exists,
+            None => {
+                println!("Site {} not in the archive, skipping.", site);
+                None
+            }
+        })
         .collect();
 
     if sites.is_empty() {
-        sites = arch.sites()?.into_iter().map(|site| site.id).collect();
-    }
-
-    for site in &sites {
-        if !arch.site_exists(site)? {
-            println!("Site {} not in the archive, skipping.", site);
-        }
+        sites = arch.sites()?;
     }
 
     let mut models: Vec<Model> = matches
@@ -474,7 +475,7 @@ fn calculate_stats(
 }
 
 fn print_stats(
-    site: &str,
+    site: &Site,
     model: Model,
     stats: &ModelStats,
     g_stats: &[GraphStatArg],
@@ -490,7 +491,16 @@ fn print_stats(
         let mut days: Vec<NaiveDate> = vals.keys().cloned().collect();
         days.sort();
 
-        let title = format!("Fire Indexes for {}.", site.to_uppercase());
+        let title = format!(
+            "Fire Indexes for {}{} ({}).",
+            site.name.as_deref().unwrap_or(""),
+            match site.state {
+                Some(st) => format!(", {}", st.as_static_str()),
+                None => "".to_owned(),
+            },
+            site.id.to_uppercase()
+        );
+
         let header = format!(
             "{} data from {} to {}.",
             model,
@@ -606,10 +616,15 @@ fn print_stats(
         println!(
             "{:^78}",
             format!(
-                "{} {} for {}",
+                "{} {} for {}{} ({})",
                 model,
                 g_stat.as_static(),
-                site.to_uppercase()
+                site.name.as_deref().unwrap_or(""),
+                match site.state {
+                    Some(st) => format!(", {}", st.as_static_str()),
+                    None => "".to_owned(),
+                },
+                site.id.to_uppercase()
             )
         );
 
@@ -676,7 +691,7 @@ fn save_stats(
 #[derive(Debug)]
 struct CmdLineArgs {
     root: PathBuf,
-    sites: Vec<String>,
+    sites: Vec<Site>,
     models: Vec<Model>,
     init_times: Vec<NaiveDateTime>,
     table_stats: Vec<TableStatArg>,
