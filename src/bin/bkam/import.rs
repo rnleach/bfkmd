@@ -33,7 +33,7 @@ pub fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error
 
         let anal = data
             .into_iter()
-            .nth(0)
+            .next()
             .ok_or(BufkitDataErr::NotEnoughData)?;
         let init_time = anal.0.valid_time().ok_or(BufkitDataErr::NotEnoughData)?;
 

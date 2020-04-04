@@ -38,7 +38,7 @@ pub fn start_writer_thread(
 
                             let init_time_res = bufkit_data
                                 .into_iter()
-                                .nth(0)
+                                .next()
                                 .ok_or("No soundings in file")
                                 .and_then(|anal| anal.0.valid_time().ok_or("Missing valid time"));
                             let end_time_res = bufkit_data
