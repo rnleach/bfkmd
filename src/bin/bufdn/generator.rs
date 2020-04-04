@@ -2,7 +2,7 @@ use super::{ReqInfo, StepResult, DEFAULT_DAYS_BACK, HOST_URL};
 use crate::missing_url::MissingUrlDb;
 use bfkmd::parse_date_string;
 use bufkit_data::{Archive, BufkitDataErr, Model};
-use chrono::{Datelike, Duration, NaiveDateTime, Timelike, Utc};
+use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use clap::ArgMatches;
 use crossbeam_channel as channel;
 use itertools::iproduct;
@@ -87,7 +87,7 @@ pub fn start_generator_thread<'a>(
 
         iter
             // Filter out known bad combinations
-            .filter(|(site, model, _)| !invalid_combination(site, *model))
+            .filter(|(site, model, init_time)| !invalid_combination(site, *model, *init_time))
             // Filter out data already in the databse
             .filter(|(site, model, init_time)| {
                 !arch.file_exists(site, *model, init_time).unwrap_or(false)
@@ -133,10 +133,10 @@ fn build_download_list<'a>(
     }))
 }
 
-fn invalid_combination(site: &str, model: Model) -> bool {
+fn invalid_combination(site: &str, model: Model, init_time: NaiveDateTime) -> bool {
     let site: String = site.to_lowercase();
 
-    match site.deref() {
+    let model_site_mismatch = match site.deref() {
         "bam" | "c17" | "lrr" | "s06" | "ssy" | "xkza" | "xxpn" => {
             model == Model::NAM || model == Model::NAM4KM
         }
@@ -144,7 +144,14 @@ fn invalid_combination(site: &str, model: Model) -> bool {
         "wntr" => model == Model::GFS || model == Model::NAM4KM,
         "kfca" => model == Model::NAM || model == Model::NAM4KM,
         _ => false, // All other combinations are OK
-    }
+    };
+
+    let model_init_time_mismatch = match model {
+        Model::NAM4KM => init_time < NaiveDate::from_ymd(2013, 3, 25).and_hms(0, 0, 0),
+        _ => init_time < NaiveDate::from_ymd(2011, 1, 1).and_hms(0, 0, 0),
+    };
+
+    model_site_mismatch || model_init_time_mismatch
 }
 
 fn build_url(
