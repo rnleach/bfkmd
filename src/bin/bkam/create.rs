@@ -15,7 +15,7 @@ pub fn create(_root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Erro
     if already_exists && sub_args.is_present("force") {
         ::std::fs::remove_dir_all(root)?;
     } else if already_exists {
-        Err("Archive already exists, must use --force to overwrite.")?;
+        return Err("Archive already exists, must use --force to overwrite.".into());
     }
 
     Archive::create(root)?;

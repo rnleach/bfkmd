@@ -7,7 +7,7 @@ pub fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Box<dyn Error>>
     println!("Checking if the archive location exists.");
     if !root.as_path().is_dir() {
         println!("Archive root directory not found. Quitting.");
-        Err("Invalid root.")?;
+        return Err("Invalid root.".into());
     } else {
         println!("Found, moving on.\n");
     }
@@ -17,7 +17,7 @@ pub fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Box<dyn Error>>
     let data_dir = &root.join("data");
     if !data_dir.as_path().is_dir() {
         println!("Archive data directory not found. Archive is empty. Quitting.");
-        Err("Invalid data directory.")?;
+        return Err("Invalid data directory.".into());
     } else {
         println!("Found, moving on.\n");
     }
