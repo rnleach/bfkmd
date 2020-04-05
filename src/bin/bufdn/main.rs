@@ -66,8 +66,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             }) => {
                 if init_time < too_old_to_be_missing {
                     missing_urls.add_url(url).map_err(|err| err.to_string())?;
+                    println!("URL missing, will not try again: {}", url);
+                } else {
+                    println!("Try again later: {}", url)
                 }
-                println!("URL does not exist: {}", url)
             }
             ParseError(
                 ReqInfo {
@@ -84,12 +86,12 @@ fn run() -> Result<(), Box<dyn Error>> {
                 println!("  HTTP error ({}): {}.", code, url)
             }
             OtherDownloadError(_, err) | ArchiveError(_, err) => println!("  {}", err),
-            Success(ReqInfo {
-                site,
-                model,
-                init_time,
-                ..
-            }) => println!("Success for {:>4} {:^6} {}.", site, model, init_time),
+            Success(req) => {
+                println!(
+                    "Success for {:>4} {:^6} {}.",
+                    req.site, req.model, req.init_time
+                );
+            }
             IntializationError(msg) => println!("Error initializing threads: {}", msg),
             _ => unreachable!(),
         }
@@ -214,6 +216,7 @@ pub enum StepResult {
     ParseError(ReqInfo, String),         // An error during parsing
     ArchiveError(ReqInfo, String),       // Error adding it to the archive
     MissingUrlDbError(ReqInfo, String),  // Error dealing with the MissingUrlDb
+    ErrorSavingCurrent(String),          // Error saving the most recent file to a local drive.
     IntializationError(String),          // Error setting up threads.
 }
 

@@ -1,13 +1,8 @@
 use super::{ReqInfo, StepResult};
-use bufkit_data::Archive;
+use bufkit_data::{Archive, Model};
 use crossbeam_channel as channel;
 use sounding_bufkit::BufkitData;
-use std::{
-    fs::File,
-    io::Write,
-    path::{Path, PathBuf},
-    thread::spawn,
-};
+use std::{collections::HashSet, error::Error, fs::File, io::Write, path::PathBuf, thread::spawn};
 
 pub fn start_writer_thread(
     root: PathBuf,
@@ -26,15 +21,14 @@ pub fn start_writer_thread(
             }
         };
 
+        let mut updated_sites: HashSet<SaveLatestInfo> = HashSet::new();
+
         for step_result in save_rx {
             let next_step = match step_result {
                 StepResult::BufkitFileAsString(req_info, data) => {
                     match BufkitData::init(&data, "") {
                         Ok(bufkit_data) => {
-                            // Save to the local file system.
-                            if let Some(ref curr_dir) = curr_dir {
-                                save_uncompressed(&req_info, curr_dir, &data);
-                            }
+                            updated_sites.insert(SaveLatestInfo::from(&req_info));
 
                             let init_time_res = bufkit_data
                                 .into_iter()
@@ -80,18 +74,74 @@ pub fn start_writer_thread(
 
             save_tx.send(next_step).expect("save_tx error sending.");
         }
+
+        match save_latest(&arch, curr_dir, updated_sites) {
+            Ok(()) => {}
+            Err(err) => {
+                save_tx
+                    .send(StepResult::ErrorSavingCurrent(err.to_string()))
+                    .expect("save_tx error sending.");
+            }
+        }
     });
 }
 
-fn save_uncompressed(req_info: &ReqInfo, curr_dir: &Path, buf: &str) {
-    let fname = format!("{}_{}.buf", &req_info.site, req_info.model.as_static_str());
-    let mut path = PathBuf::from(curr_dir);
-    path.push(fname);
+fn save_latest(
+    arch: &Archive,
+    save_dir: Option<PathBuf>,
+    updated_sites: HashSet<SaveLatestInfo>,
+) -> Result<(), Box<dyn Error>> {
+    let save_dir = if let Some(save_dir) = save_dir {
+        save_dir
+    } else {
+        return Ok(());
+    };
 
-    match File::create(path) {
-        Ok(mut f) => {
-            let _ = f.write_all(buf.as_bytes());
+    for SaveLatestInfo { site, model } in updated_sites.iter() {
+        let buf = match arch.most_recent_file(site, *model) {
+            Ok(data_str) => data_str,
+            Err(err) => {
+                println!(
+                    "Unable to save latest data for {} at {} with error: {}.",
+                    model.as_static_str(),
+                    site,
+                    err,
+                );
+                continue;
+            }
+        };
+
+        let fname = format!("{}_{}.buf", site, model.as_static_str());
+        let mut path = PathBuf::from(&save_dir);
+        path.push(fname);
+
+        match File::create(path) {
+            Ok(mut f) => {
+                let _ = f.write_all(buf.as_bytes());
+            }
+            Err(err) => println!("Error writing to file {:?}", err.to_string()),
         }
-        Err(err) => println!("Error writing to file {:?}", err.to_string()),
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct SaveLatestInfo {
+    site: String,
+    model: Model,
+}
+
+impl From<&ReqInfo> for SaveLatestInfo {
+    fn from(req: &ReqInfo) -> SaveLatestInfo {
+        let ReqInfo {
+            ref site,
+            ref model,
+            ..
+        } = req;
+        SaveLatestInfo {
+            site: site.clone(),
+            model: *model,
+        }
     }
 }
