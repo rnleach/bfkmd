@@ -101,6 +101,8 @@ pub fn start_generator_thread<'a>(
             )
             // Filter out known missing values
             .filter(|(_, _, _, url)| !missing_urls.is_missing(url).unwrap_or(false))
+            // Limit the number of downloads.
+            .take(10_000)
             // Pass it off to another thread for downloading.
             .map(move |(site, model, init_time, url)| {
                 StepResult::Request(ReqInfo {
