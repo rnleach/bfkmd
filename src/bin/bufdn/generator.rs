@@ -128,11 +128,13 @@ fn build_download_list<'a>(
     start: NaiveDateTime,
     end: NaiveDateTime,
 ) -> Result<impl Iterator<Item = (String, Model, NaiveDateTime)> + 'a, BufkitDataErr> {
-    Ok(iproduct!(sites, models).flat_map(move |(site, model)| {
-        model
-            .all_runs(&end, &(start - Duration::hours(model.hours_between_runs())))
-            .map(move |init_time| (site.to_uppercase(), *model, init_time))
-    }))
+    Ok(iproduct!(sites, models)
+        .flat_map(move |(site, model)| {
+            model
+                .all_runs(&end, &(start - Duration::hours(model.hours_between_runs())))
+                .map(move |init_time| (site.to_uppercase(), *model, init_time))
+        })
+        .take(10_000))
 }
 
 fn invalid_combination(site: &str, model: Model, init_time: NaiveDateTime) -> bool {
