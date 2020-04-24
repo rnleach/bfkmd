@@ -5,7 +5,6 @@ use bufkit_data::{Archive, BufkitDataErr, Model};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use clap::ArgMatches;
 use crossbeam_channel as channel;
-use itertools::iproduct;
 use std::{error::Error, ops::Deref, path::PathBuf, str::FromStr, thread::spawn};
 use strum::IntoEnumIterator;
 
@@ -102,7 +101,7 @@ pub fn start_generator_thread<'a>(
             // Filter out known missing values
             .filter(|(_, _, _, url)| !missing_urls.is_missing(url).unwrap_or(false))
             // Limit the number of downloads.
-            .take(5_000)
+            .take(1_000)
             // Pass it off to another thread for downloading.
             .map(move |(site, model, init_time, url)| {
                 StepResult::Request(ReqInfo {
@@ -128,11 +127,18 @@ fn build_download_list<'a>(
     start: NaiveDateTime,
     end: NaiveDateTime,
 ) -> Result<impl Iterator<Item = (String, Model, NaiveDateTime)> + 'a, BufkitDataErr> {
-    Ok(iproduct!(sites, models).flat_map(move |(site, model)| {
-        model
-            .all_runs(&end, &(start - Duration::hours(model.hours_between_runs())))
-            .map(move |init_time| (site.to_uppercase(), *model, init_time))
-    }))
+    Ok(models
+        .iter()
+        .flat_map(move |model| {
+            model
+                .all_runs(&end, &(start - Duration::hours(model.hours_between_runs())))
+                .map(move |init_time| (*model, init_time))
+        })
+        .flat_map(move |(model, init_time)| {
+            sites
+                .iter()
+                .map(move |site| (site.to_uppercase(), model, init_time))
+        }))
 }
 
 fn invalid_combination(site: &str, model: Model, init_time: NaiveDateTime) -> bool {
@@ -145,7 +151,7 @@ fn invalid_combination(site: &str, model: Model, init_time: NaiveDateTime) -> bo
         "bon" | "hmm" | "mrp" | "smb" | "win" => model == Model::GFS,
         "wntr" => model == Model::GFS || model == Model::NAM4KM,
         "kfca" => model == Model::NAM || model == Model::NAM4KM,
-        "pabt" | "pafa" | "pafm" | "pamc" | "pfyu" => model == Model::NAM4KM,
+        "paeg" | "pabt" | "pafa" | "pafm" | "pamc" | "pfyu" => model == Model::NAM4KM,
         _ => false, // All other combinations are OK
     };
 
