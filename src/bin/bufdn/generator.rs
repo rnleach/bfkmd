@@ -74,7 +74,7 @@ pub fn start_generator_thread<'a>(
             }
         };
 
-        let iter = match build_download_list(&sites, &models, start, end) {
+        let download_list = match build_download_list(&sites, &models, start, end) {
             Ok(iter) => iter,
             Err(err) => {
                 generator_tx
@@ -84,7 +84,8 @@ pub fn start_generator_thread<'a>(
             }
         };
 
-        iter
+        download_list
+            .into_iter()
             // Filter out known bad combinations
             .filter(|(site, model, init_time)| !invalid_combination(site, *model, *init_time))
             // Filter out data already in the databse
@@ -126,8 +127,8 @@ fn build_download_list<'a>(
     models: &'a [Model],
     start: NaiveDateTime,
     end: NaiveDateTime,
-) -> Result<impl Iterator<Item = (String, Model, NaiveDateTime)> + 'a, BufkitDataErr> {
-    Ok(models
+) -> Result<Vec<(String, Model, NaiveDateTime)>, BufkitDataErr> {
+    let mut to_ret: Vec<(String, Model, NaiveDateTime)> = models
         .iter()
         .flat_map(move |model| {
             model
@@ -138,7 +139,12 @@ fn build_download_list<'a>(
             sites
                 .iter()
                 .map(move |site| (site.to_uppercase(), model, init_time))
-        }))
+        })
+        .collect();
+
+    to_ret.sort_by_key(|val| std::cmp::Reverse(val.2));
+
+    Ok(to_ret)
 }
 
 fn invalid_combination(site: &str, model: Model, init_time: NaiveDateTime) -> bool {
