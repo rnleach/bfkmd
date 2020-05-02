@@ -1,5 +1,5 @@
 use bfkmd::parse_date_string;
-use bufkit_data::{Archive, Model};
+use bufkit_data::{Archive, Model, Site};
 use chrono::{NaiveDate, Utc};
 use clap::ArgMatches;
 use std::str::FromStr;
@@ -9,10 +9,11 @@ use strum::IntoEnumIterator;
 pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(root)?;
 
-    let mut sites: Vec<String> = sub_args
+    let mut sites: Vec<Site> = sub_args
         .values_of("sites")
         .into_iter()
         .flat_map(|site_iter| site_iter.map(ToOwned::to_owned))
+        .filter_map(|site_id| arch.site_for_id(&site_id))
         .collect();
 
     let mut models: Vec<Model> = sub_args
@@ -33,7 +34,7 @@ pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>
         .unwrap_or_else(|| Utc::now().naive_utc());
 
     if sites.is_empty() {
-        sites = arch.sites()?.into_iter().map(|site| site.id).collect();
+        sites = arch.sites()?;
     }
 
     if models.is_empty() {
@@ -50,7 +51,13 @@ pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>
             let all_runs = model.all_runs(&after, &before);
 
             for run in all_runs {
-                println!("  Removing {} {} {}.", site, model.as_static_str(), run);
+                println!(
+                    "  Removing {} {} {} {}.",
+                    site.station_num,
+                    site.id.as_deref().unwrap_or(""),
+                    model.as_static_str(),
+                    run
+                );
                 if let Ok(()) = arch.remove(site, model, &run) {}
             }
         }

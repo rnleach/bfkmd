@@ -83,29 +83,29 @@ fn sites_list(
     //
     // Combine filters to make an iterator over the sites.
     //
-    let mut master_list = arch.sites()?;
+    let mut master_list: Vec<(String, Site)> = arch
+        .sites()?
+        .into_iter()
+        .filter_map(|site| arch.id_for_site(&site).map(|id| (id, site)))
+        .collect();
     master_list.sort_unstable_by(|left, right| {
         match (
-            left.state.map(|l| l.as_static_str()),
-            right.state.map(|r| r.as_static_str()),
+            left.1.state.map(|l| l.as_static_str()),
+            right.1.state.map(|r| r.as_static_str()),
         ) {
-            (Some(left_st), Some(right_st)) => match left_st.cmp(right_st) {
-                std::cmp::Ordering::Equal => left.id.cmp(&right.id),
-                non_equal_states => non_equal_states,
-            },
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
+            _ => std::cmp::Ordering::Equal,
         }
     });
 
     let sites_iter = || {
         master_list
             .iter()
-            .filter(|s| missing_any_pred(s))
-            .filter(|s| missing_state_pred(s))
-            .filter(|s| in_state_pred(s))
-            .filter(|s| auto_download_pred(s))
+            .filter(|s| missing_any_pred(&s.1))
+            .filter(|s| missing_state_pred(&s.1))
+            .filter(|s| in_state_pred(&s.1))
+            .filter(|s| auto_download_pred(&s.1))
     };
 
     let mut table_printer = if sites_iter().count() == 0 {
@@ -125,8 +125,8 @@ fn sites_list(
 
     let blank = "-".to_owned();
 
-    for site in sites_iter() {
-        let id = &site.id;
+    for (site_id, site) in sites_iter() {
+        let id = &site_id;
         let state = site.state.map(|st| st.as_static_str()).unwrap_or(&"-");
         let name = site.name.as_ref().unwrap_or(&blank);
         let offset = site
@@ -136,7 +136,7 @@ fn sites_list(
         let notes = site.notes.as_ref().unwrap_or(&blank);
         let auto_dl = if site.auto_download { "Yes" } else { "No" };
         let models = arch
-            .models(id)?
+            .models(&site)?
             .into_iter()
             .map(|mdl| mdl.as_static_str().to_owned())
             .collect::<Vec<String>>()
@@ -166,7 +166,9 @@ fn sites_modify(
 
     // Safe to unwrap because the argument is required.
     let site = sub_sub_args.value_of("site").unwrap();
-    let mut site = arch.site_info(site)?;
+    let mut site = arch
+        .site_for_id(site)
+        .ok_or_else(|| BufkitDataErr::InvalidSiteId(site.to_owned()))?;
 
     if let Some(new_state) = sub_sub_args.value_of("state") {
         match StateProv::from_str(&new_state.to_uppercase()) {
@@ -214,16 +216,19 @@ fn sites_inventory(
     let arch = Archive::connect(root)?;
 
     // Safe to unwrap because the argument is required.
-    let site = sub_sub_args.value_of("site").unwrap();
+    let site_id = sub_sub_args.value_of("site").unwrap();
+    let site = arch
+        .site_for_id(site_id)
+        .ok_or_else(|| BufkitDataErr::InvalidSiteId(site_id.to_owned()))?;
 
     for model in Model::iter() {
-        let inv = match arch.inventory(site, model) {
+        let inv = match arch.inventory(&site, model) {
             ok @ Ok(_) => ok,
             Err(BufkitDataErr::NotEnoughData) => {
                 println!(
                     "No data for model {} and site {}.",
                     model.as_static_str(),
-                    site.to_uppercase()
+                    site_id.to_uppercase()
                 );
                 continue;
             }
@@ -231,7 +236,7 @@ fn sites_inventory(
         }?;
 
         if inv.missing.is_empty() {
-            println!("\nInventory for {} at {}.", model, site.to_uppercase());
+            println!("\nInventory for {} at {}.", model, site_id.to_uppercase());
             println!("   start: {}", inv.first);
             println!("     end: {}", inv.last);
             println!("          No missing runs!");
@@ -240,7 +245,7 @@ fn sites_inventory(
                 .with_title(format!(
                     "Inventory for {} at {}.",
                     model,
-                    site.to_uppercase()
+                    site_id.to_uppercase()
                 ))
                 .with_header(format!("{} -> {}", inv.first, inv.last));
 

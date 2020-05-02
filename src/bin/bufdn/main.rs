@@ -2,7 +2,7 @@
 //!
 //! Downloads Bufkit files and stores them in your archive.
 use crate::missing_url::MissingUrlDb;
-use bufkit_data::Model;
+use bufkit_data::{Model, Site};
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{crate_version, App, Arg, ArgMatches};
 use crossbeam_channel as channel;
@@ -89,7 +89,9 @@ fn run() -> Result<(), Box<dyn Error>> {
             Success(req) => {
                 println!(
                     "Success for {:>4} {:^6} {}.",
-                    req.site, req.model, req.init_time
+                    req.site.id.as_deref().unwrap_or(""),
+                    req.model,
+                    req.init_time
                 );
             }
             IntializationError(msg) => println!("Error initializing threads: {}", msg),
@@ -222,7 +224,7 @@ pub enum StepResult {
 
 #[derive(Debug, Clone)]
 pub struct ReqInfo {
-    site: String,
+    site: Site,
     model: Model,
     init_time: NaiveDateTime,
     url: String,

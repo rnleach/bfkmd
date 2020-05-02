@@ -13,14 +13,14 @@ pub struct TablePrinter {
 
 impl TablePrinter {
     pub fn new() -> Self {
-        TablePrinter::default()
+        Self::default()
     }
 
     pub fn with_title<T>(self, title: T) -> Self
     where
         Option<String>: From<T>,
     {
-        TablePrinter {
+        Self {
             title: Option::from(title),
             ..self
         }
@@ -30,7 +30,7 @@ impl TablePrinter {
     where
         Option<String>: From<T>,
     {
-        TablePrinter {
+        Self {
             header: Option::from(header),
             ..self
         }
@@ -40,14 +40,14 @@ impl TablePrinter {
     where
         Option<String>: From<T>,
     {
-        TablePrinter {
+        Self {
             footer: Option::from(footer),
             ..self
         }
     }
 
     pub fn with_fill<T: AsRef<str>>(self, fill_string: T) -> Self {
-        TablePrinter {
+        Self {
             fill: fill_string.as_ref().to_owned(),
             ..self
         }
@@ -67,7 +67,7 @@ impl TablePrinter {
 
         columns.push(col_vals);
 
-        TablePrinter {
+        Self {
             column_names,
             columns,
             ..self
@@ -86,9 +86,27 @@ impl TablePrinter {
     }
 
     pub fn print_with_min_width(self, min_width: usize) -> Result<(), std::fmt::Error> {
-        //
-        // Calculate widths
-        //
+        let (table_width, col_widths) = self.calculate_widths(min_width);
+
+        // FIXME: Handle printing better. Make function to print top border, section separator,
+        // bottom border, and then each of the sections header, column names, data rows, and
+        // footer.
+        let builder = String::with_capacity(2000); // This should be enough
+
+        let (left_char, right_char, builder) = self.print_the_title(table_width, builder)?;
+        let (left_char, right_char, builder) =
+            self.print_the_header(left_char, right_char, table_width, builder)?;
+        let builder = self.print_column_names(left_char, right_char, &col_widths, builder)?;
+        let builder = self.print_data_rows(&col_widths, builder)?;
+        let builder = self.print_the_footer(table_width, &col_widths, builder)?;
+
+        print!("{}", builder);
+
+        Ok(())
+    }
+
+    /// Calculate the full table width and the widths of each column.
+    fn calculate_widths(&self, min_width: usize) -> (usize, Vec<usize>) {
         let title_width = self
             .title
             .as_ref()
@@ -120,9 +138,6 @@ impl TablePrinter {
         let mut all_cols_width: usize =
             col_widths.iter().cloned().sum::<usize>() + col_widths.len() - 1;
 
-        //
-        // Widen columns until they add to the width of the table (for really long titles)
-        //
         while all_cols_width < table_width {
             let min = col_widths.iter().cloned().min().unwrap();
             for width in &mut col_widths {
@@ -137,48 +152,30 @@ impl TablePrinter {
             table_width = all_cols_width;
         }
 
-        //
-        // Function to split the header/footers into lines
-        //
-        fn wrapper<'a>(text: &'a str, table_width: usize) -> Vec<&'a str> {
-            let mut to_ret: Vec<&str> = vec![];
+        (table_width, col_widths)
+    }
 
-            let mut remaining = &text[..];
-            while remaining.len() > table_width {
-                let guess = &remaining[..table_width];
+    /// Print the title row and return what the next left & right border chars should be.
+    fn print_the_title(
+        &self,
+        table_width: usize,
+        builder: String,
+    ) -> Result<(char, char, String), std::fmt::Error> {
+        let left_char: char;
+        let right_char: char;
+        let mut builder = builder;
 
-                let right_edge = guess
-                    .find(|c| c == '\n')
-                    .or_else(|| guess.rfind(char::is_whitespace))
-                    .unwrap_or(table_width);
-                to_ret.push(&remaining[..right_edge]);
-                remaining = remaining[right_edge..].trim();
-            }
-            to_ret.push(remaining);
+        writeln!(builder)?;
 
-            to_ret
-        };
-
-        //
-        // Build the string.
-        //
-        let mut builder = String::with_capacity(2000); // This should be enough
-        writeln!(&mut builder)?;
-
-        //
-        // Print the title
-        //
-        let mut left_char: char;
-        let mut right_char: char;
-        if let Some(title) = self.title {
+        if let Some(ref title) = self.title {
             // print top border
             write!(
-                &mut builder,
+                builder,
                 "\u{250c}{}\u{2510}\n",
                 "\u{2500}".repeat(table_width)
             )?;
             // print title
-            writeln!(&mut builder, "\u{2502}{0:^1$}\u{2502}", title, table_width)?;
+            writeln!(builder, "\u{2502}{0:^1$}\u{2502}", title, table_width)?;
 
             // set up the border type for the next line.
             left_char = '\u{251c}';
@@ -188,20 +185,31 @@ impl TablePrinter {
             right_char = '\u{2510}';
         }
 
-        //
-        // Print the header
-        //
-        if let Some(header) = self.header {
+        Ok((left_char, right_char, builder))
+    }
+
+    fn print_the_header(
+        &self,
+        left_char: char,
+        right_char: char,
+        table_width: usize,
+        builder: String,
+    ) -> Result<(char, char, String), std::fmt::Error> {
+        let mut left_char = left_char;
+        let mut right_char = right_char;
+        let mut builder = builder;
+
+        if let Some(ref header) = self.header {
             // print top border -  or a horizontal line
             writeln!(
-                &mut builder,
+                builder,
                 "{}{}{}",
                 left_char,
                 "\u{2500}".repeat(table_width),
                 right_char
             )?;
             for line in wrapper(&header, table_width) {
-                writeln!(&mut builder, "\u{2502}{0:<1$}\u{2502}", line, table_width)?;
+                writeln!(builder, "\u{2502}{0:<1$}\u{2502}", line, table_width)?;
             }
 
             // set up the border type for the next line.
@@ -209,17 +217,25 @@ impl TablePrinter {
             right_char = '\u{2524}';
         }
 
-        //
-        // Print the column names
-        //
+        Ok((left_char, right_char, builder))
+    }
+
+    fn print_column_names(
+        &self,
+        left_char: char,
+        right_char: char,
+        col_widths: &[usize],
+        builder: String,
+    ) -> Result<String, std::fmt::Error> {
+        let mut builder = builder;
 
         // print top border above columns
-        write!(&mut builder, "{}", left_char)?;
+        write!(builder, "{}", left_char)?;
         for &width in &col_widths[..(col_widths.len() - 1)] {
-            write!(&mut builder, "{}\u{252C}", "\u{2500}".repeat(width))?;
+            write!(builder, "{}\u{252C}", "\u{2500}".repeat(width))?;
         }
         writeln!(
-            &mut builder,
+            builder,
             "{}{}",
             "\u{2500}".repeat(col_widths[col_widths.len() - 1]),
             right_char
@@ -227,21 +243,27 @@ impl TablePrinter {
 
         // print column names
         for (name, width) in self.column_names.iter().zip(col_widths.iter()) {
-            write!(&mut builder, "\u{2502} {0:^1$} ", name, width - 2)?;
+            write!(builder, "\u{2502} {0:^1$} ", name, width - 2)?;
         }
-        writeln!(&mut builder, "\u{2502}")?;
+        writeln!(builder, "\u{2502}")?;
 
-        //
-        // Print the data rows
-        //
+        Ok(builder)
+    }
+
+    fn print_data_rows(
+        &self,
+        col_widths: &[usize],
+        builder: String,
+    ) -> Result<String, std::fmt::Error> {
+        let mut builder = builder;
 
         // print border below column names
-        write!(&mut builder, "\u{251C}")?;
+        write!(builder, "\u{251C}")?;
         for &width in &col_widths[..(col_widths.len() - 1)] {
-            write!(&mut builder, "{}\u{253C}", "\u{2500}".repeat(width))?;
+            write!(builder, "{}\u{253C}", "\u{2500}".repeat(width))?;
         }
         writeln!(
-            &mut builder,
+            builder,
             "{}\u{2524}",
             "\u{2500}".repeat(col_widths[col_widths.len() - 1])
         )?;
@@ -249,51 +271,75 @@ impl TablePrinter {
         // print rows
         let num_rows = self.columns.iter().map(Vec::len).max().unwrap_or(0);
         for i in 0..num_rows {
-            for (column, col_width) in self.columns.iter().zip(&col_widths) {
+            for (column, col_width) in self.columns.iter().zip(col_widths) {
                 let val = column.get(i).unwrap_or(&self.fill);
-                write!(&mut builder, "\u{2502} {0:>1$} ", val, col_width - 2)?;
+                write!(builder, "\u{2502} {0:>1$} ", val, col_width - 2)?;
             }
-            writeln!(&mut builder, "\u{2502}")?;
+            writeln!(builder, "\u{2502}")?;
         }
 
-        //
-        // Print the footer
-        //
+        Ok(builder)
+    }
+
+    fn print_the_footer(
+        &self,
+        table_width: usize,
+        col_widths: &[usize],
+        builder: String,
+    ) -> Result<String, std::fmt::Error> {
+        let mut builder = builder;
 
         // print border below data
-        if self.footer.is_some() {
-            left_char = '\u{251c}';
-            right_char = '\u{2524}';
+        let (left_char, right_char) = if self.footer.is_some() {
+            ('\u{251c}', '\u{2524}')
         } else {
-            left_char = '\u{2514}';
-            right_char = '\u{2518}';
-        }
-        write!(&mut builder, "{}", left_char)?;
+            ('\u{2514}', '\u{2518}')
+        };
+
+        write!(builder, "{}", left_char)?;
         for &width in &col_widths[..(col_widths.len() - 1)] {
-            write!(&mut builder, "{}\u{2534}", "\u{2500}".repeat(width))?;
+            write!(builder, "{}\u{2534}", "\u{2500}".repeat(width))?;
         }
         writeln!(
-            &mut builder,
+            builder,
             "{}{}",
             "\u{2500}".repeat(col_widths[col_widths.len() - 1]),
             right_char
         )?;
 
-        if let Some(footer) = self.footer {
+        if let Some(ref footer) = self.footer {
             for line in wrapper(&footer, table_width) {
-                writeln!(&mut builder, "\u{2502}{0:<1$}\u{2502}", line, table_width)?;
+                writeln!(builder, "\u{2502}{0:<1$}\u{2502}", line, table_width)?;
             }
 
             // print very bottom border -  or a horizontal line
             writeln!(
-                &mut builder,
+                builder,
                 "\u{2514}{}\u{2518}",
                 "\u{2500}".repeat(table_width)
             )?;
         }
 
-        print!("{}", builder);
-
-        Ok(())
+        Ok(builder)
     }
+}
+
+/// Function to split the header/footers into lines
+fn wrapper<'a>(text: &'a str, table_width: usize) -> Vec<&'a str> {
+    let mut to_ret: Vec<&str> = vec![];
+
+    let mut remaining = &text[..];
+    while remaining.len() > table_width {
+        let guess = &remaining[..table_width];
+
+        let right_edge = guess
+            .find(|c| c == '\n')
+            .or_else(|| guess.rfind(char::is_whitespace))
+            .unwrap_or(table_width);
+        to_ret.push(&remaining[..right_edge]);
+        remaining = remaining[right_edge..].trim();
+    }
+    to_ret.push(remaining);
+
+    to_ret
 }

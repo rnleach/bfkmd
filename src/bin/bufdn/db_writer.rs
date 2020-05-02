@@ -1,5 +1,5 @@
 use super::{ReqInfo, StepResult};
-use bufkit_data::{Archive, Model};
+use bufkit_data::{Archive, Model, Site};
 use crossbeam_channel as channel;
 use sounding_bufkit::BufkitData;
 use std::{collections::HashSet, error::Error, fs::File, io::Write, path::PathBuf, thread::spawn};
@@ -54,7 +54,8 @@ pub fn start_writer_thread(
                                         ref model,
                                         ..
                                     } = &req_info;
-                                    arch.add(site, *model, init_time, end_time, &data).map_err(
+
+                                    arch.add(&site, *model, init_time, end_time, &data).map_err(
                                         |err| {
                                             StepResult::ArchiveError(
                                                 req_info.clone(),
@@ -104,14 +105,20 @@ fn save_latest(
                 println!(
                     "Unable to save latest data for {} at {} with error: {}.",
                     model.as_static_str(),
-                    site,
+                    site.id.as_deref().unwrap_or("None"),
                     err,
                 );
                 continue;
             }
         };
 
-        let fname = format!("{}_{}.buf", site, model.as_static_str());
+        let site_id = if let Some(ref site_id) = site.id {
+            site_id
+        } else {
+            continue;
+        };
+
+        let fname = format!("{}_{}.buf", site_id, model.as_static_str());
         let mut path = PathBuf::from(&save_dir);
         path.push(fname);
 
@@ -128,7 +135,7 @@ fn save_latest(
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct SaveLatestInfo {
-    site: String,
+    site: Site,
     model: Model,
 }
 

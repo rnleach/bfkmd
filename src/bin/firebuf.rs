@@ -38,36 +38,36 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     for site in &args.sites {
         for model in &args.models {
-            if !arch.models(&site.id)?.contains(&model) {
+            if !arch.models(&site)?.contains(&model) {
                 println!(
                     "No data in archive for {} at {}.",
                     model.as_static_str(),
-                    &site.id
+                    &site.id.as_deref().unwrap()
                 );
                 continue;
             }
 
             let latest;
             let init_times = if args.init_times.is_empty() {
-                latest = vec![arch.most_recent_init_time(&site.id, *model)?];
+                latest = vec![arch.most_recent_init_time(&site, *model)?];
                 &latest
             } else {
                 &args.init_times
             };
 
             for &init_time in init_times {
-                let stats =
-                    &match calculate_stats(arch, &site.id, *model, init_time, g_stats, t_stats) {
-                        Ok(stats) => stats,
-                        Err(_) => continue,
-                    };
+                let stats = &match calculate_stats(arch, &site, *model, init_time, g_stats, t_stats)
+                {
+                    Ok(stats) => stats,
+                    Err(_) => continue,
+                };
 
                 if args.print {
                     print_stats(site, *model, stats, g_stats, t_stats)?;
                 }
 
                 if let Some(ref path) = args.save_dir {
-                    save_stats(&site.id, *model, stats, g_stats, t_stats, path)?;
+                    save_stats(&site, *model, stats, g_stats, t_stats, path)?;
                 }
             }
         }
@@ -227,7 +227,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .expect("Invalid root.");
     let root_clone = root.clone();
 
-    let arch = match Archive::connect(root) {
+    let arch = match Archive::connect(&root) {
         arch @ Ok(_) => arch,
         err @ Err(_) => {
             println!("Unable to connect to db, printing error and exiting.");
@@ -239,7 +239,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .values_of("sites")
         .into_iter()
         .flat_map(|site_iter| site_iter.map(ToOwned::to_owned))
-        .filter_map(|site| match arch.site_info(&site).ok() {
+        .filter_map(|site| match arch.site_for_id(&site) {
             exists @ Some(_) => exists,
             None => {
                 println!("Site {} not in the archive, skipping.", site);
@@ -351,7 +351,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
 
 fn calculate_stats(
     arch: &Archive,
-    site: &str,
+    site: &Site,
     model: Model,
     init_time: NaiveDateTime,
     g_stats: &[GraphStatArg],
@@ -481,6 +481,12 @@ fn print_stats(
     g_stats: &[GraphStatArg],
     t_stats: &[TableStatArg],
 ) -> Result<(), Box<dyn Error>> {
+    let site_id = if let Some(ref site_id) = site.id {
+        site_id
+    } else {
+        return Ok(());
+    };
+
     //
     // Table
     //
@@ -498,7 +504,7 @@ fn print_stats(
                 Some(st) => format!(", {}", st.as_static_str()),
                 None => "".to_owned(),
             },
-            site.id.to_uppercase()
+            site_id
         );
 
         let header = format!(
@@ -624,7 +630,7 @@ fn print_stats(
                     Some(st) => format!(", {}", st.as_static_str()),
                     None => "".to_owned(),
                 },
-                site.id.to_uppercase()
+                site_id
             )
         );
 
@@ -640,20 +646,26 @@ fn print_stats(
 }
 
 fn save_stats(
-    site: &str,
+    site: &Site,
     model: Model,
     stats: &ModelStats,
     g_stats: &[GraphStatArg],
     _t_stats: &[TableStatArg],
     save_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
+    let site_id = if let Some(ref site_id) = site.id {
+        site_id
+    } else {
+        return Err("No site id given.")?;
+    };
+
     let graph_stats = &stats.graph_stats;
     let mut vts: Vec<NaiveDateTime> = graph_stats.keys().cloned().collect();
     vts.sort();
 
     let init_time_str = &vts[0].format("_%Y%m%d%H").to_string();
 
-    let file_name = String::new() + site + "_" + model.as_static_str() + init_time_str + ".csv";
+    let file_name = String::new() + &site_id + "_" + model.as_static_str() + init_time_str + ".csv";
     let path = save_dir.join(&file_name);
     let file = File::create(path)?;
     let mut wtr = csv::Writer::from_writer(file);
@@ -713,9 +725,7 @@ enum GraphStatArg {
 
 impl GraphStatArg {
     fn default_min_y(self) -> f32 {
-        match self {
-            _ => 0.0,
-        }
+        0.0
     }
 
     fn default_max_y(self) -> f32 {

@@ -40,13 +40,8 @@ pub fn fix(root: &PathBuf, _sub_args: &ArgMatches) -> Result<(), Box<dyn Error>>
 
     // Check that all the files listed in the index are also in the data directory
     println!("Cleaning up the index.");
-    let (jh, recv) = arch.clean()?;
-    for message in recv {
-        println!("      {}", message);
-    }
+    arch.clean()?;
     println!("Done.\n");
-
-    jh.join().unwrap()?;
 
     Ok(())
 }
