@@ -1,5 +1,5 @@
 use super::{ReqInfo, StepResult};
-use bufkit_data::{Archive, Model, Site};
+use bufkit_data::{Archive, Model, SiteInfo};
 use crossbeam_channel as channel;
 use sounding_bufkit::BufkitData;
 use std::{collections::HashSet, error::Error, fs::File, io::Write, path::PathBuf, thread::spawn};

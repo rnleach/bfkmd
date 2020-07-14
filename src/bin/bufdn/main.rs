@@ -2,7 +2,7 @@
 //!
 //! Downloads Bufkit files and stores them in your archive.
 use crate::missing_url::MissingUrlDb;
-use bufkit_data::{Model, Site};
+use bufkit_data::{Model, SiteInfo};
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{crate_version, App, Arg, ArgMatches};
 use crossbeam_channel as channel;

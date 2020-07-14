@@ -1,5 +1,5 @@
 use bfkmd::TablePrinter;
-use bufkit_data::{Archive, BufkitDataErr, Model, Site, StateProv};
+use bufkit_data::{Archive, BufkitDataErr, Model, SiteInfo, StateProv};
 use chrono::FixedOffset;
 use clap::ArgMatches;
 use std::{error::Error, path::PathBuf, str::FromStr};
@@ -24,7 +24,7 @@ fn sites_list(
     //
     // This filter lets all sites pass
     //
-    let pass = &|_site: &Site| -> bool { true };
+    let pass = &|_site: &SiteInfo| -> bool { true };
 
     //
     // Filter based on state
@@ -35,13 +35,13 @@ fn sites_list(
         StateProv::AL
     };
 
-    let state_filter = &|site: &Site| -> bool {
+    let state_filter = &|site: &SiteInfo| -> bool {
         match site.state {
             Some(st) => st == state_value,
             None => false,
         }
     };
-    let in_state_pred: &dyn Fn(&Site) -> bool = if sub_sub_args.is_present("state") {
+    let in_state_pred: &dyn Fn(&SiteInfo) -> bool = if sub_sub_args.is_present("state") {
         state_filter
     } else {
         pass
@@ -50,8 +50,8 @@ fn sites_list(
     //
     // Filter for missing any data
     //
-    let missing_any = &|site: &Site| -> bool { site.name.is_none() || site.state.is_none() };
-    let missing_any_pred: &dyn Fn(&Site) -> bool = if sub_sub_args.is_present("missing-data") {
+    let missing_any = &|site: &SiteInfo| -> bool { site.name.is_none() || site.state.is_none() };
+    let missing_any_pred: &dyn Fn(&SiteInfo) -> bool = if sub_sub_args.is_present("missing-data") {
         missing_any
     } else {
         pass
@@ -60,8 +60,9 @@ fn sites_list(
     //
     // Filter for missing state
     //
-    let missing_state = &|site: &Site| -> bool { site.state.is_none() };
-    let missing_state_pred: &dyn Fn(&Site) -> bool = if sub_sub_args.is_present("missing-state") {
+    let missing_state = &|site: &SiteInfo| -> bool { site.state.is_none() };
+    let missing_state_pred: &dyn Fn(&SiteInfo) -> bool = if sub_sub_args.is_present("missing-state")
+    {
         missing_state
     } else {
         pass
@@ -70,9 +71,10 @@ fn sites_list(
     //
     // Filter based on auto download
     //
-    let auto_download = &|site: &Site| -> bool { site.auto_download };
-    let no_auto_download = &|site: &Site| -> bool { !site.auto_download };
-    let auto_download_pred: &dyn Fn(&Site) -> bool = if sub_sub_args.is_present("auto-download") {
+    let auto_download = &|site: &SiteInfo| -> bool { site.auto_download };
+    let no_auto_download = &|site: &SiteInfo| -> bool { !site.auto_download };
+    let auto_download_pred: &dyn Fn(&SiteInfo) -> bool = if sub_sub_args.is_present("auto-download")
+    {
         auto_download
     } else if sub_sub_args.is_present("no-auto-download") {
         no_auto_download
@@ -83,7 +85,7 @@ fn sites_list(
     //
     // Combine filters to make an iterator over the sites.
     //
-    let mut master_list: Vec<(String, Site)> = arch
+    let mut master_list: Vec<(String, SiteInfo)> = arch
         .sites()?
         .into_iter()
         .filter_map(|site| arch.id_for_site(&site).map(|id| (id, site)))
@@ -204,7 +206,7 @@ fn sites_modify(
         }
     }
 
-    arch.set_site_info(&site)?;
+    arch.update_site(&site)?;
     Ok(())
 }
 

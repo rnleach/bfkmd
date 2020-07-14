@@ -1,7 +1,7 @@
 use super::{ReqInfo, StepResult, DEFAULT_DAYS_BACK, HOST_URL};
 use crate::missing_url::MissingUrlDb;
 use bfkmd::parse_date_string;
-use bufkit_data::{Archive, BufkitDataErr, Model, Site};
+use bufkit_data::{Archive, BufkitDataErr, Model, SiteInfo};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use clap::ArgMatches;
 use crossbeam_channel as channel;

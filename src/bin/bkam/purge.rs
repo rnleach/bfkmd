@@ -1,5 +1,5 @@
 use bfkmd::parse_date_string;
-use bufkit_data::{Archive, Model, Site};
+use bufkit_data::{Archive, Model, SiteInfo};
 use chrono::{NaiveDate, Utc};
 use clap::ArgMatches;
 use std::str::FromStr;
@@ -9,7 +9,7 @@ use strum::IntoEnumIterator;
 pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(root)?;
 
-    let mut sites: Vec<Site> = sub_args
+    let mut sites: Vec<SiteInfo> = sub_args
         .values_of("sites")
         .into_iter()
         .flat_map(|site_iter| site_iter.map(ToOwned::to_owned))

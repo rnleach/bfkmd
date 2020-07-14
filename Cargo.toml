@@ -6,7 +6,7 @@ edition = "2018"
 publish = false
 
 [dependencies]
-bufkit-data = "0.13.0"
+bufkit-data = "0.14.0"
 chrono = "0.4.2"
 clap = { version = "2.32.0", features = ["wrap_help"]}
 crossbeam-channel = "0.4.2"
@@ -24,3 +24,6 @@ strum_macros = "0.18"
 textplots = "0.5.0"
 threadpool = "1.7.1"
 unicode-width = "0.1.5"
+
+[patch.crates-io]
+bufkit-data = {path = "../bufkit-data"}
