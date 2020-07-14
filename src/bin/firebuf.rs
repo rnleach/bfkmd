@@ -1,7 +1,7 @@
 //! firebuf - Calculate fire weather indicies from soundings in your Bufkit Archive.
 use bfkmd::{bail, parse_date_string, TablePrinter};
-use bufkit_data::{Archive, Model, SiteInfo};
-use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
+use bufkit_data::{Archive, BufkitDataErr, Model, SiteInfo};
+use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike};
 use clap::{crate_version, App, Arg};
 use dirs::home_dir;
 use sounding_analysis::Sounding;
@@ -36,39 +36,38 @@ fn run() -> Result<(), Box<dyn Error>> {
     let g_stats = &args.graph_stats;
     let t_stats = &args.table_stats;
 
-    for site in &args.sites {
-        for model in &args.models {
-            if !arch.models(&site)?.contains(&model) {
-                println!(
-                    "No data in archive for {} at {}.",
-                    model.as_static_str(),
-                    &site.id.as_deref().unwrap()
-                );
-                continue;
-            }
-
-            let latest;
-            let init_times = if args.init_times.is_empty() {
-                latest = vec![arch.most_recent_init_time(&site, *model)?];
-                &latest
-            } else {
-                &args.init_times
+    for site_id in &args.sites {
+        for &model in &args.models {
+            let station_num = match arch.station_num_for_id(site_id, model) {
+                Ok(station_num) => station_num,
+                Err(BufkitDataErr::NotInIndex) => {
+                    println!(
+                        "No data in archive for {} at {}.",
+                        model.as_static_str(),
+                        site_id,
+                    );
+                    continue;
+                }
+                Err(err) => return Err(err.into()),
             };
 
-            for &init_time in init_times {
-                let stats = &match calculate_stats(arch, &site, *model, init_time, g_stats, t_stats)
-                {
-                    Ok(stats) => stats,
-                    Err(_) => continue,
-                };
+            let site = match arch.site(station_num) {
+                Some(site) => site,
+                None => continue,
+            };
 
-                if args.print {
-                    print_stats(site, *model, stats, g_stats, t_stats)?;
-                }
+            let stats = &match calculate_stats(arch, &site, model, args.init_time, g_stats, t_stats)
+            {
+                Ok(stats) => stats,
+                Err(_) => continue,
+            };
 
-                if let Some(ref path) = args.save_dir {
-                    save_stats(&site, *model, stats, g_stats, t_stats, path)?;
-                }
+            if args.print {
+                print_stats(&site, site_id, model, stats, g_stats, t_stats)?;
+            }
+
+            if let Some(ref path) = args.save_dir {
+                save_stats(site_id, model, stats, g_stats, t_stats, path)?;
             }
         }
     }
@@ -87,6 +86,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .short("s")
                 .long("sites")
                 .takes_value(true)
+                .required(true)
                 .help("Site identifiers (e.g. kord, katl, smn)."),
         )
         .arg(
@@ -156,35 +156,6 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .conflicts_with("end_time"),
         )
         .arg(
-            Arg::with_name("start-time")
-                .long("start-time")
-                .takes_value(true)
-                .help(concat!(
-                    "The model inititialization time of the first model run in a series.",
-                    " YYYY-MM-DD-HH"
-                ))
-                .long_help(concat!(
-                    "The first initialization time in a series of model runs to analyze.",
-                    " Format is YYYY-MM-DD-HH. If no end time is given it keeps going until the",
-                    " most recent model run."
-                )),
-        )
-        .arg(
-            Arg::with_name("end-time")
-                .long("end-time")
-                .takes_value(true)
-                .help(concat!(
-                    "The model inititialization time of the last model run in a series.",
-                    " YYYY-MM-DD-HH"
-                ))
-                .long_help(concat!(
-                    "The last initialization time in a series of model runs to analyze.",
-                    " Format is YYYY-MM-DD-HH. If not specified then the model run is assumed to",
-                    " be the last available run in the archive."
-                ))
-                .requires("start-time"),
-        )
-        .arg(
             Arg::with_name("save-dir")
                 .long("save-dir")
                 .takes_value(true)
@@ -227,30 +198,11 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .expect("Invalid root.");
     let root_clone = root.clone();
 
-    let arch = match Archive::connect(&root) {
-        arch @ Ok(_) => arch,
-        err @ Err(_) => {
-            println!("Unable to connect to db, printing error and exiting.");
-            err
-        }
-    }?;
-
-    let mut sites: Vec<Site> = matches
+    let sites: Vec<String> = matches
         .values_of("sites")
         .into_iter()
         .flat_map(|site_iter| site_iter.map(ToOwned::to_owned))
-        .filter_map(|site| match arch.site_for_id(&site) {
-            exists @ Some(_) => exists,
-            None => {
-                println!("Site {} not in the archive, skipping.", site);
-                None
-            }
-        })
         .collect();
-
-    if sites.is_empty() {
-        sites = arch.sites()?;
-    }
 
     let mut models: Vec<Model> = matches
         .values_of("models")
@@ -287,36 +239,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         graph_stats = vec![Hdw];
     }
 
-    let start_time = matches
-        .value_of("init-time")
-        .map(parse_date_string)
-        .or_else(|| matches.value_of("start-time").map(parse_date_string));
-    let end_time = matches.value_of("end-time").map(parse_date_string);
-
-    let init_times = if let Some(start_time) = start_time {
-        if let Some(end_time) = end_time {
-            let mut init_times = vec![];
-            let mut curr_time = start_time;
-            while curr_time < end_time {
-                init_times.push(curr_time);
-                curr_time += Duration::hours(1);
-            }
-            init_times
-        } else if !matches.is_present("init-time") {
-            let now = Utc::now().naive_utc();
-            let mut curr_time = start_time;
-            let mut init_times = vec![];
-            while curr_time < now {
-                init_times.push(curr_time);
-                curr_time += Duration::hours(1);
-            }
-            init_times
-        } else {
-            vec![start_time]
-        }
-    } else {
-        vec![]
-    };
+    let init_time = matches.value_of("init-time").map(parse_date_string);
 
     let print: bool = {
         let arg_val = matches.value_of("print").unwrap(); // Safe, this is a required argument.
@@ -341,7 +264,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         root: root_clone,
         sites,
         models,
-        init_times,
+        init_time,
         table_stats,
         graph_stats,
         print,
@@ -351,13 +274,16 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
 
 fn calculate_stats(
     arch: &Archive,
-    site: &Site,
+    site: &SiteInfo,
     model: Model,
-    init_time: NaiveDateTime,
+    init_time: Option<NaiveDateTime>,
     g_stats: &[GraphStatArg],
     t_stats: &[TableStatArg],
 ) -> Result<ModelStats, Box<dyn Error>> {
-    let analysis = arch.retrieve(site, model, init_time)?;
+    let analysis = match init_time {
+        Some(init_time) => arch.retrieve(site.station_num, model, init_time)?,
+        None => arch.retrieve_most_recent(site.station_num, model)?,
+    };
 
     let analysis = BufkitData::init(&analysis, "")?;
 
@@ -475,18 +401,13 @@ fn calculate_stats(
 }
 
 fn print_stats(
-    site: &Site,
+    site: &SiteInfo,
+    site_id: &str,
     model: Model,
     stats: &ModelStats,
     g_stats: &[GraphStatArg],
     t_stats: &[TableStatArg],
 ) -> Result<(), Box<dyn Error>> {
-    let site_id = if let Some(ref site_id) = site.id {
-        site_id
-    } else {
-        return Ok(());
-    };
-
     //
     // Table
     //
@@ -646,19 +567,13 @@ fn print_stats(
 }
 
 fn save_stats(
-    site: &Site,
+    site_id: &str,
     model: Model,
     stats: &ModelStats,
     g_stats: &[GraphStatArg],
     _t_stats: &[TableStatArg],
     save_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
-    let site_id = if let Some(ref site_id) = site.id {
-        site_id
-    } else {
-        return Err("No site id given.")?;
-    };
-
     let graph_stats = &stats.graph_stats;
     let mut vts: Vec<NaiveDateTime> = graph_stats.keys().cloned().collect();
     vts.sort();
@@ -703,9 +618,9 @@ fn save_stats(
 #[derive(Debug)]
 struct CmdLineArgs {
     root: PathBuf,
-    sites: Vec<Site>,
+    sites: Vec<String>,
     models: Vec<Model>,
-    init_times: Vec<NaiveDateTime>,
+    init_time: Option<NaiveDateTime>,
     table_stats: Vec<TableStatArg>,
     graph_stats: Vec<GraphStatArg>,
     print: bool,
