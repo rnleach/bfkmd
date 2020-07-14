@@ -1,5 +1,5 @@
 use bfkmd::TablePrinter;
-use bufkit_data::{Archive, BufkitDataErr, Model, SiteInfo, StateProv};
+use bufkit_data::{Archive, BufkitDataErr, Model, SiteInfo, StateProv, StationNumber};
 use chrono::FixedOffset;
 use clap::ArgMatches;
 use std::{error::Error, path::PathBuf, str::FromStr};
@@ -85,15 +85,12 @@ fn sites_list(
     //
     // Combine filters to make an iterator over the sites.
     //
-    let mut master_list: Vec<(String, SiteInfo)> = arch
-        .sites()?
-        .into_iter()
-        .filter_map(|site| arch.id_for_site(&site).map(|id| (id, site)))
-        .collect();
+    let mut master_list: Vec<SiteInfo> = arch.sites()?;
+
     master_list.sort_unstable_by(|left, right| {
         match (
-            left.1.state.map(|l| l.as_static_str()),
-            right.1.state.map(|r| r.as_static_str()),
+            left.state.map(|l| l.as_static_str()),
+            right.state.map(|r| r.as_static_str()),
         ) {
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
@@ -104,10 +101,10 @@ fn sites_list(
     let sites_iter = || {
         master_list
             .iter()
-            .filter(|s| missing_any_pred(&s.1))
-            .filter(|s| missing_state_pred(&s.1))
-            .filter(|s| in_state_pred(&s.1))
-            .filter(|s| auto_download_pred(&s.1))
+            .filter(|s| missing_any_pred(&s))
+            .filter(|s| missing_state_pred(&s))
+            .filter(|s| in_state_pred(&s))
+            .filter(|s| auto_download_pred(&s))
     };
 
     let mut table_printer = if sites_iter().count() == 0 {
@@ -116,7 +113,8 @@ fn sites_list(
     } else {
         TablePrinter::new()
             .with_title("Sites".to_owned())
-            .with_column::<String, String>("ID".to_owned(), &[])
+            .with_column::<String, String>("Stn Num".to_owned(), &[])
+            .with_column::<String, String>("IDs".to_owned(), &[])
             .with_column::<String, String>("STATE".to_owned(), &[])
             .with_column::<String, String>("NAME".to_owned(), &[])
             .with_column::<String, String>("UTC Offset".to_owned(), &[])
@@ -127,8 +125,15 @@ fn sites_list(
 
     let blank = "-".to_owned();
 
-    for (site_id, site) in sites_iter() {
-        let id = &site_id;
+    for site in sites_iter() {
+        let station_num = site.station_num;
+        let ids = arch
+            .models(site.station_num)?
+            .into_iter()
+            .filter_map(|mdl| arch.ids(site.station_num, mdl).ok())
+            .flat_map(|ids| ids.into_iter())
+            .collect::<Vec<String>>()
+            .join(",");
         let state = site.state.map(|st| st.as_static_str()).unwrap_or(&"-");
         let name = site.name.as_ref().unwrap_or(&blank);
         let offset = site
@@ -138,13 +143,14 @@ fn sites_list(
         let notes = site.notes.as_ref().unwrap_or(&blank);
         let auto_dl = if site.auto_download { "Yes" } else { "No" };
         let models = arch
-            .models(&site)?
+            .models(site.station_num)?
             .into_iter()
             .map(|mdl| mdl.as_static_str().to_owned())
             .collect::<Vec<String>>()
             .join(",");
         let row = vec![
-            id.to_string(),
+            station_num.to_string(),
+            ids.to_string(),
             state.to_string(),
             name.to_string(),
             offset,
@@ -167,10 +173,15 @@ fn sites_modify(
     let arch = Archive::connect(root)?;
 
     // Safe to unwrap because the argument is required.
-    let site = sub_sub_args.value_of("site").unwrap();
+    let site = sub_sub_args
+        .value_of("stn")
+        .unwrap()
+        .parse::<u32>()
+        .map(StationNumber::from)?;
+
     let mut site = arch
-        .site_for_id(site)
-        .ok_or_else(|| BufkitDataErr::InvalidSiteId(site.to_owned()))?;
+        .site(site)
+        .ok_or_else(|| BufkitDataErr::InvalidSiteId(site.to_string()))?;
 
     if let Some(new_state) = sub_sub_args.value_of("state") {
         match StateProv::from_str(&new_state.to_uppercase()) {
@@ -218,53 +229,87 @@ fn sites_inventory(
     let arch = Archive::connect(root)?;
 
     // Safe to unwrap because the argument is required.
-    let site_id = sub_sub_args.value_of("site").unwrap();
+    let site = sub_sub_args
+        .value_of("station_number")
+        .unwrap()
+        .parse::<u32>()
+        .map(StationNumber::from)?;
     let site = arch
-        .site_for_id(site_id)
-        .ok_or_else(|| BufkitDataErr::InvalidSiteId(site_id.to_owned()))?;
+        .site(site)
+        .ok_or_else(|| BufkitDataErr::InvalidSiteId(site.to_string()))?;
 
     for model in Model::iter() {
-        let inv = match arch.inventory(&site, model) {
+        let inv = match arch.inventory(site.station_num, model) {
             ok @ Ok(_) => ok,
             Err(BufkitDataErr::NotEnoughData) => {
                 println!(
                     "No data for model {} and site {}.",
                     model.as_static_str(),
-                    site_id.to_uppercase()
+                    site.station_num.to_string()
                 );
                 continue;
             }
             err @ Err(_) => err,
         }?;
 
-        if inv.missing.is_empty() {
-            println!("\nInventory for {} at {}.", model, site_id.to_uppercase());
-            println!("   start: {}", inv.first);
-            println!("     end: {}", inv.last);
+        let first = inv.iter().nth(0).unwrap(); // unwrap OK because we already checked not empty.
+        let last = inv.iter().last().unwrap(); // unwrap OK because we already checked not empty.
+
+        let missing = arch.missing_inventory(site.station_num, model, None)?;
+
+        if missing.is_empty() {
+            println!(
+                "\nInventory for {} at {}.",
+                model,
+                site.station_num.to_string()
+            );
+            println!("   start: {}", first);
+            println!("     end: {}", last);
             println!("          No missing runs!");
         } else {
             let mut tp = TablePrinter::new()
                 .with_title(format!(
-                    "Inventory for {} at {}.",
+                    "Inventory for {} at station {}.",
                     model,
-                    site_id.to_uppercase()
+                    site.station_num.to_string()
                 ))
-                .with_header(format!("{} -> {}", inv.first, inv.last));
+                .with_header(format!("{} -> {}", first, last));
 
-            let dl = if inv.auto_download { "" } else { " NOT" };
+            let dl = if site.auto_download { "" } else { " NOT" };
             tp = tp.with_footer(format!("This site is{} automatically downloaded.", dl));
 
             let mut cycles = vec![];
             let mut start = vec![];
             let mut end = vec![];
-            for missing in &inv.missing {
-                let start_run = missing.0;
-                let end_run = missing.1;
-                let num_cycles = (end_run - start_run).num_hours() / model.hours_between_runs() + 1;
-                cycles.push(format!("{}", num_cycles));
-                start.push(format!("{}", start_run));
-                end.push(format!("{}", end_run));
+
+            let mut iter = missing.into_iter();
+            // Unwrap OK because we already check is_empty()
+            let mut start_run = iter.next().unwrap();
+            let mut end_run = start_run;
+            let mut last_round = start_run;
+            while let Some(missing) = iter.next() {
+                if (missing - last_round).num_hours() / model.hours_between_runs() == 1 {
+                    end_run = missing;
+                    last_round = missing;
+                    continue;
+                } else {
+                    let num_cycles =
+                        (end_run - start_run).num_hours() / model.hours_between_runs() + 1;
+                    cycles.push(format!("{}", num_cycles));
+                    start.push(format!("{}", start_run));
+                    end.push(format!("{}", end_run));
+
+                    start_run = missing;
+                    end_run = missing;
+                    last_round = missing;
+                }
             }
+
+            // Don't forget to add the last one!
+            let num_cycles = (end_run - start_run).num_hours() / model.hours_between_runs() + 1;
+            cycles.push(format!("{}", num_cycles));
+            start.push(format!("{}", start_run));
+            end.push(format!("{}", end_run));
 
             tp = tp
                 .with_column("Cycles", &cycles)
