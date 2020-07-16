@@ -2,7 +2,7 @@ use bfkmd::TablePrinter;
 use bufkit_data::{Archive, BufkitDataErr, Model, SiteInfo, StateProv, StationNumber};
 use chrono::FixedOffset;
 use clap::ArgMatches;
-use std::{error::Error, path::PathBuf, str::FromStr};
+use std::{collections::HashSet, error::Error, path::PathBuf, str::FromStr};
 use strum::IntoEnumIterator;
 
 pub fn sites(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
@@ -132,6 +132,8 @@ fn sites_list(
             .into_iter()
             .filter_map(|mdl| arch.ids(site.station_num, mdl).ok())
             .flat_map(|ids| ids.into_iter())
+            .collect::<HashSet<String>>()
+            .into_iter()
             .collect::<Vec<String>>()
             .join(",");
         let state = site.state.map(|st| st.as_static_str()).unwrap_or(&"-");
