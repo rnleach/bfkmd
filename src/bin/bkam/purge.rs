@@ -58,11 +58,13 @@ pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>
             let all_runs = model.all_runs(&after, &before);
 
             for run in all_runs {
-                println!("  Removing {} {} {}.", site, model.as_static_str(), run);
+                if arch.file_exists(site, model, run)? {
+                    println!("  Removing {} {} {}.", site, model.as_static_str(), run);
 
-                match arch.remove(site, model, run) {
-                    Ok(()) => {}
-                    Err(err) => println!("    Error removing: {}", err),
+                    match arch.remove(site, model, run) {
+                        Ok(()) => {}
+                        Err(err) => println!("    Error removing: {}", err),
+                    }
                 }
             }
         }
