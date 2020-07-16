@@ -1,7 +1,7 @@
 use super::{ReqInfo, StepResult, DEFAULT_DAYS_BACK, HOST_URL};
 use crate::missing_url::MissingUrlDb;
 use bfkmd::parse_date_string;
-use bufkit_data::{Archive, BufkitDataErr, Model, SiteInfo};
+use bufkit_data::{Archive, BufkitDataErr, Model, StationNumber};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use clap::ArgMatches;
 use crossbeam_channel as channel;
@@ -14,22 +14,6 @@ pub fn start_generator_thread<'a>(
     generator_tx: channel::Sender<StepResult>,
 ) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(&root)?;
-
-    let sites: Vec<Site> = if arg_matches.is_present("sites") {
-        arg_matches
-            .values_of("sites")
-            .into_iter()
-            .flat_map(|site_iter| site_iter.filter_map(|site| arch.site_for_id(site)))
-            .collect()
-    } else if arg_matches.is_present("all-sites") {
-        arch.sites().map_err(|e| e.to_string())?
-    } else {
-        arch.sites()
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .filter(|s| s.auto_download)
-            .collect()
-    };
 
     let models: Vec<Model> = if arg_matches.is_present("models") {
         arg_matches
@@ -58,6 +42,11 @@ pub fn start_generator_thread<'a>(
         end = parse_date_string(end_date);
     }
 
+    let sites: Vec<String> = arg_matches
+        .values_of("sites")
+        .map(|site_iter| site_iter.map(|s| s.to_string()).collect())
+        .unwrap_or_else(Vec::new);
+
     spawn(move || {
         let missing_urls = match MissingUrlDb::open_or_create_404_db(&root) {
             Ok(missing_urls) => missing_urls,
@@ -69,7 +58,7 @@ pub fn start_generator_thread<'a>(
             }
         };
 
-        let download_list = match build_download_list(&arch, &sites, &models, start, end) {
+        let download_list = match build_download_list(&arch, sites, &models, start, end) {
             Ok(a_vec) => a_vec,
             Err(err) => {
                 generator_tx
@@ -82,12 +71,14 @@ pub fn start_generator_thread<'a>(
         download_list
             .into_iter()
             // Filter out known bad combinations
-            .filter(|(site_id, _site, model, init_time)| {
+            .filter(|(site_id, _stn_num, model, init_time)| {
                 !invalid_combination(site_id, *model, *init_time)
             })
             // Filter out data already in the databse
             .filter(|(_site_id, site, model, init_time)| {
-                !arch.file_exists(&site, *model, init_time).unwrap_or(false)
+                !site
+                    .and_then(|s| arch.file_exists(s, *model, *init_time).ok())
+                    .unwrap_or(false)
             })
             // Add the url
             .filter_map(|(site_id, site, model, init_time)| {
@@ -101,9 +92,10 @@ pub fn start_generator_thread<'a>(
             // Limit the number of downloads.
             .take(1_000)
             // Pass it off to another thread for downloading.
-            .map(move |(_site_id, site, model, init_time, url)| {
+            .map(move |(site_id, site, model, init_time, url)| {
                 StepResult::Request(ReqInfo {
-                    site: site.clone(),
+                    site_id,
+                    site,
                     model,
                     init_time,
                     url,
@@ -119,29 +111,58 @@ pub fn start_generator_thread<'a>(
     Ok(())
 }
 
-fn build_download_list<'a>(
+fn build_download_list(
     arch: &Archive,
-    sites: &'a [Site],
-    models: &'a [Model],
+    sites: Vec<String>,
+    models: &[Model],
     start: NaiveDateTime,
     end: NaiveDateTime,
-) -> Result<Vec<(String, &'a Site, Model, NaiveDateTime)>, BufkitDataErr> {
-    let mut to_ret: Vec<(String, &Site, Model, NaiveDateTime)> = models
-        .iter()
-        .flat_map(move |model| {
-            model
-                .all_runs(&end, &(start - Duration::hours(model.hours_between_runs())))
-                .map(move |init_time| (*model, init_time))
-        })
-        .flat_map(|(model, init_time)| {
+) -> Result<Vec<(String, Option<StationNumber>, Model, NaiveDateTime)>, BufkitDataErr> {
+    let mut to_ret: Vec<(String, Option<StationNumber>, Model, NaiveDateTime)> = vec![];
+    for &model in models {
+        let sites: Vec<(String, Option<StationNumber>)> = if !sites.is_empty() {
             sites
                 .iter()
-                .filter_map(|s| arch.id_for_site(s).map(|site_id| (site_id, s)))
-                .map(move |(site_id, site)| (site_id.to_uppercase(), site, model, init_time))
-        })
-        .collect();
+                .map(|s| s.to_lowercase())
+                .map(|s| {
+                    let stn_num = arch.station_num_for_id(&s, model).ok();
+                    (s, stn_num)
+                })
+                .collect()
+        } else {
+            list_of_auto_download_sites_for_model(arch, model)?
+        };
+
+        for init_time in
+            model.all_runs(&end, &(start - Duration::hours(model.hours_between_runs())))
+        {
+            for (site_id, stn_num) in &sites {
+                to_ret.push((site_id.clone(), *stn_num, model, init_time));
+            }
+        }
+    }
 
     to_ret.sort_by_key(|val| std::cmp::Reverse(val.3));
+
+    Ok(to_ret)
+}
+
+fn list_of_auto_download_sites_for_model(
+    arch: &Archive,
+    model: Model,
+) -> Result<Vec<(String, Option<StationNumber>)>, BufkitDataErr> {
+    let iter = arch
+        .sites()?
+        .into_iter()
+        .filter(|s| s.auto_download)
+        .map(|s| s.station_num);
+
+    let mut to_ret = vec![];
+    for stn_num in iter {
+        if let Some(site_id) = arch.most_recent_id(stn_num, model)? {
+            to_ret.push((site_id.to_lowercase(), Some(stn_num)));
+        }
+    }
 
     Ok(to_ret)
 }

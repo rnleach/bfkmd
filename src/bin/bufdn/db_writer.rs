@@ -1,7 +1,6 @@
 use super::{ReqInfo, StepResult};
-use bufkit_data::{Archive, Model, SiteInfo};
+use bufkit_data::{AddFileResult, Archive, Model};
 use crossbeam_channel as channel;
-use sounding_bufkit::BufkitData;
 use std::{collections::HashSet, error::Error, fs::File, io::Write, path::PathBuf, thread::spawn};
 
 pub fn start_writer_thread(
@@ -26,48 +25,19 @@ pub fn start_writer_thread(
         for step_result in save_rx {
             let next_step = match step_result {
                 StepResult::BufkitFileAsString(req_info, data) => {
-                    match BufkitData::init(&data, "") {
-                        Ok(bufkit_data) => {
+                    match arch.add(&req_info.site_id, req_info.model, &data) {
+                        AddFileResult::Ok(_) | AddFileResult::New(_) => {
                             updated_sites.insert(SaveLatestInfo::from(&req_info));
-
-                            let init_time_res = bufkit_data
-                                .into_iter()
-                                .next()
-                                .ok_or("No soundings in file")
-                                .and_then(|anal| anal.0.valid_time().ok_or("Missing valid time"));
-                            let end_time_res = bufkit_data
-                                .into_iter()
-                                .last()
-                                .ok_or("No soundings in file")
-                                .and_then(|anal| anal.0.valid_time().ok_or("Missing valid time"));
-
-                            init_time_res
-                                .and_then(|init_time| {
-                                    end_time_res.map(|end_time| (init_time, end_time))
-                                })
-                                .map_err(|err| {
-                                    StepResult::ParseError(req_info.clone(), err.to_string())
-                                })
-                                .and_then(|(init_time, end_time)| {
-                                    let ReqInfo {
-                                        ref site,
-                                        ref model,
-                                        ..
-                                    } = &req_info;
-
-                                    arch.add(&site, *model, init_time, end_time, &data).map_err(
-                                        |err| {
-                                            StepResult::ArchiveError(
-                                                req_info.clone(),
-                                                err.to_string(),
-                                            )
-                                        },
-                                    )
-                                })
-                                .map(|_| StepResult::Success(req_info))
-                                .unwrap_or_else(|err| err)
+                            StepResult::Success(req_info)
                         }
-                        Err(err) => StepResult::ParseError(req_info, err.to_string()),
+                        AddFileResult::Error(err) => {
+                            StepResult::ArchiveError(req_info, err.to_string())
+                        }
+                        AddFileResult::IdMovedStation { old, new } => StepResult::StationIdMoved {
+                            info: req_info,
+                            old,
+                            new,
+                        },
                     }
                 }
                 _ => step_result,
@@ -98,24 +68,21 @@ fn save_latest(
         return Ok(());
     };
 
-    for SaveLatestInfo { site, model } in updated_sites.iter() {
-        let buf = match arch.most_recent_file(site, *model) {
+    for SaveLatestInfo { site_id, model } in updated_sites.into_iter() {
+        let buf = match arch
+            .station_num_for_id(&site_id, model)
+            .and_then(|site| arch.retrieve_most_recent(site, model))
+        {
             Ok(data_str) => data_str,
             Err(err) => {
                 println!(
                     "Unable to save latest data for {} at {} with error: {}.",
                     model.as_static_str(),
-                    site.id.as_deref().unwrap_or("None"),
+                    site_id,
                     err,
                 );
                 continue;
             }
-        };
-
-        let site_id = if let Some(ref site_id) = site.id {
-            site_id
-        } else {
-            continue;
         };
 
         let fname = format!("{}_{}.buf", site_id, model.as_static_str());
@@ -135,19 +102,19 @@ fn save_latest(
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct SaveLatestInfo {
-    site: Site,
+    site_id: String,
     model: Model,
 }
 
 impl From<&ReqInfo> for SaveLatestInfo {
     fn from(req: &ReqInfo) -> SaveLatestInfo {
         let ReqInfo {
-            ref site,
             ref model,
+            ref site_id,
             ..
         } = req;
         SaveLatestInfo {
-            site: site.clone(),
+            site_id: site_id.clone(),
             model: *model,
         }
     }

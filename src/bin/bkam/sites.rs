@@ -287,7 +287,7 @@ fn sites_inventory(
             let mut start_run = iter.next().unwrap();
             let mut end_run = start_run;
             let mut last_round = start_run;
-            while let Some(missing) = iter.next() {
+            for missing in iter {
                 if (missing - last_round).num_hours() / model.hours_between_runs() == 1 {
                     end_run = missing;
                     last_round = missing;

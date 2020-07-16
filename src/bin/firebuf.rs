@@ -196,7 +196,6 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .map(PathBuf::from)
         .or_else(|| home_dir().map(|hd| hd.join("bufkit")))
         .expect("Invalid root.");
-    let root_clone = root.clone();
 
     let sites: Vec<String> = matches
         .values_of("sites")
@@ -261,7 +260,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
     });
 
     Ok(CmdLineArgs {
-        root: root_clone,
+        root,
         sites,
         models,
         init_time,
