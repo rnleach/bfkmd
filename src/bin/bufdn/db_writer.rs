@@ -14,7 +14,7 @@ pub fn start_writer_thread(
             Ok(arch) => arch,
             Err(err) => {
                 save_tx
-                    .send(StepResult::IntializationError(err.to_string()))
+                    .send(StepResult::InitializationError(err.to_string()))
                     .expect("save_tx error sending.");
                 return;
             }

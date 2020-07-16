@@ -92,7 +92,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                     req.site_id, req.model, req.init_time
                 );
             }
-            IntializationError(msg) => println!("Error initializing threads: {}", msg),
+            InitializationError(msg) => println!("Error initializing threads: {}", msg),
             _ => unreachable!(),
         }
     }
@@ -214,7 +214,7 @@ pub enum StepResult {
     ArchiveError(ReqInfo, String),       // Error adding it to the archive
     MissingUrlDbError(ReqInfo, String),  // Error dealing with the MissingUrlDb
     ErrorSavingCurrent(String),          // Error saving the most recent file to a local drive.
-    IntializationError(String),          // Error setting up threads.
+    InitializationError(String),          // Error setting up threads.
 }
 
 #[derive(Debug, Clone)]

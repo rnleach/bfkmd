@@ -52,7 +52,7 @@ pub fn start_generator_thread<'a>(
             Ok(missing_urls) => missing_urls,
             Err(err) => {
                 generator_tx
-                    .send(StepResult::IntializationError(err.to_string()))
+                    .send(StepResult::InitializationError(err.to_string()))
                     .expect("generator_tx send error.");
                 return;
             }
@@ -62,7 +62,7 @@ pub fn start_generator_thread<'a>(
             Ok(a_vec) => a_vec,
             Err(err) => {
                 generator_tx
-                    .send(StepResult::IntializationError(err.to_string()))
+                    .send(StepResult::InitializationError(err.to_string()))
                     .expect("generator_tx send error.");
                 return;
             }
