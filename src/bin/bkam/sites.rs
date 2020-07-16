@@ -121,6 +121,7 @@ fn sites_list(
             .with_column::<String, String>("Auto Download".to_owned(), &[])
             .with_column::<String, String>("MODELS".to_owned(), &[])
             .with_column::<String, String>("NOTES".to_owned(), &[])
+            .with_column::<String, String>("Num files".to_owned(), &[])
     };
 
     let blank = "-".to_owned();
@@ -150,6 +151,9 @@ fn sites_list(
             .map(|mdl| mdl.as_static_str().to_owned())
             .collect::<Vec<String>>()
             .join(",");
+        let num_files: u32 = Model::iter()
+            .filter_map(|m| arch.count(station_num, m).ok())
+            .sum();
         let row = vec![
             station_num.to_string(),
             ids.to_string(),
@@ -159,6 +163,7 @@ fn sites_list(
             auto_dl.to_string(),
             models.to_string(),
             notes.to_string(),
+            num_files.to_string(),
         ];
         table_printer.add_row(row);
     }
