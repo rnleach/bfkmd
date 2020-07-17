@@ -214,7 +214,7 @@ pub enum StepResult {
     ArchiveError(ReqInfo, String),       // Error adding it to the archive
     MissingUrlDbError(ReqInfo, String),  // Error dealing with the MissingUrlDb
     ErrorSavingCurrent(String),          // Error saving the most recent file to a local drive.
-    InitializationError(String),          // Error setting up threads.
+    InitializationError(String),         // Error setting up threads.
 }
 
 #[derive(Debug, Clone)]

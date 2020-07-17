@@ -118,29 +118,38 @@ fn build_download_list(
     start: NaiveDateTime,
     end: NaiveDateTime,
 ) -> Result<Vec<(String, Option<StationNumber>, Model, NaiveDateTime)>, BufkitDataErr> {
-    let mut to_ret: Vec<(String, Option<StationNumber>, Model, NaiveDateTime)> = vec![];
-    for &model in models {
-        let sites: Vec<(String, Option<StationNumber>)> = if !sites.is_empty() {
-            sites
-                .iter()
-                .map(|s| s.to_lowercase())
-                .map(|s| {
-                    let stn_num = arch.station_num_for_id(&s, model).ok();
-                    (s, stn_num)
-                })
-                .collect()
-        } else {
-            list_of_auto_download_sites_for_model(arch, model)?
-        };
+    use std::time::Instant;
 
-        for init_time in
-            model.all_runs(&end, &(start - Duration::hours(model.hours_between_runs())))
-        {
-            for (site_id, stn_num) in &sites {
-                to_ret.push((site_id.clone(), *stn_num, model, init_time));
-            }
-        }
-    }
+    let start_long_request = Instant::now();
+    let site_model: Vec<(String, Option<StationNumber>, Model)> = if !sites.is_empty() {
+        println!("Using provided sites...");
+        models
+            .iter()
+            .flat_map(|&model| {
+                sites.iter().map(|s| s.to_lowercase()).map(move |s| {
+                    let stn_num = arch.station_num_for_id(&s, model).ok();
+                    (s, stn_num, model)
+                })
+            })
+            .collect()
+    } else {
+        println!("Make download list of sites...");
+        list_of_auto_download_sites_for_model(arch)?
+    };
+    let duration = start_long_request.elapsed();
+    println!("....done! with sites it took: {:?}", duration);
+
+    let mut to_ret: Vec<(String, Option<StationNumber>, Model, NaiveDateTime)> = site_model
+        .iter()
+        .flat_map(|(id, stn, model)| {
+            model
+                .all_runs(
+                    &end,
+                    &(start - chrono::Duration::hours(model.hours_between_runs())),
+                )
+                .map(move |vt| (id.clone(), *stn, *model, vt))
+        })
+        .collect();
 
     to_ret.sort_by_key(|val| std::cmp::Reverse(val.3));
 
@@ -149,22 +158,18 @@ fn build_download_list(
 
 fn list_of_auto_download_sites_for_model(
     arch: &Archive,
-    model: Model,
-) -> Result<Vec<(String, Option<StationNumber>)>, BufkitDataErr> {
-    let iter = arch
-        .sites()?
+) -> Result<Vec<(String, Option<StationNumber>, Model)>, BufkitDataErr> {
+    Ok(arch
+        .auto_downloads()?
         .into_iter()
-        .filter(|s| s.auto_download)
-        .map(|s| s.station_num);
-
-    let mut to_ret = vec![];
-    for stn_num in iter {
-        if let Some(site_id) = arch.most_recent_id(stn_num, model)? {
-            to_ret.push((site_id.to_lowercase(), Some(stn_num)));
-        }
-    }
-
-    Ok(to_ret)
+        .map(
+            |bufkit_data::DownloadInfo {
+                 id,
+                 station_num,
+                 model,
+             }| (id, Some(station_num), model),
+        )
+        .collect())
 }
 
 fn invalid_combination(site: &str, model: Model, init_time: NaiveDateTime) -> bool {
@@ -186,7 +191,13 @@ fn invalid_combination(site: &str, model: Model, init_time: NaiveDateTime) -> bo
         _ => init_time < NaiveDate::from_ymd(2011, 1, 1).and_hms(0, 0, 0),
     };
 
-    model_site_mismatch || model_init_time_mismatch
+    let expired_sites = match (site.deref(), model) {
+        ("lrr", Model::GFS) => init_time >= NaiveDate::from_ymd(2018, 12, 5).and_hms(0, 0, 0),
+        ("c17", Model::GFS) => init_time >= NaiveDate::from_ymd(2018, 12, 5).and_hms(0, 0, 0),
+        _ => false,
+    };
+
+    model_site_mismatch || model_init_time_mismatch || expired_sites
 }
 
 fn build_url(
