@@ -27,3 +27,6 @@ unicode-width = "0.1.5"
 
 [patch.crates-io]
 bufkit-data = {path = "../bufkit-data"}
+
+[profile.release]
+lto = "fat"
