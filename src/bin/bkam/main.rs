@@ -91,11 +91,11 @@ fn run() -> Result<(), Box<dyn Error>> {
                     SubCommand::with_name("modify")
                         .about("Modify the entry for a site.")
                         .arg(
-                            Arg::with_name("site")
+                            Arg::with_name("stn")
                                 .index(1)
                                 .required(true)
                                 .takes_value(true)
-                                .help("The site to modify."),
+                                .help("The station number of the site to modify."),
                         ).arg(
                             Arg::with_name("state")
                                 .long("state")
@@ -128,11 +128,11 @@ fn run() -> Result<(), Box<dyn Error>> {
                     SubCommand::with_name("inv")
                         .about("Get the inventory of soundings for a site.")
                         .arg(
-                            Arg::with_name("site")
+                            Arg::with_name("station_number")
                                 .index(1)
                                 .required(true)
                                 .takes_value(true)
-                                .help("The site to get the inventory for."),
+                                .help("The station number of the site to get the inventory for."),
                         ),
                 ),
         ).subcommand(

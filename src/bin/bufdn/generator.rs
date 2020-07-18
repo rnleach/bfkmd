@@ -1,7 +1,7 @@
 use super::{ReqInfo, StepResult, DEFAULT_DAYS_BACK, HOST_URL};
 use crate::missing_url::MissingUrlDb;
 use bfkmd::parse_date_string;
-use bufkit_data::{Archive, BufkitDataErr, Model, Site};
+use bufkit_data::{Archive, BufkitDataErr, Model, StationNumber};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use clap::ArgMatches;
 use crossbeam_channel as channel;
@@ -14,22 +14,6 @@ pub fn start_generator_thread<'a>(
     generator_tx: channel::Sender<StepResult>,
 ) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(&root)?;
-
-    let sites: Vec<Site> = if arg_matches.is_present("sites") {
-        arg_matches
-            .values_of("sites")
-            .into_iter()
-            .flat_map(|site_iter| site_iter.filter_map(|site| arch.site_for_id(site)))
-            .collect()
-    } else if arg_matches.is_present("all-sites") {
-        arch.sites().map_err(|e| e.to_string())?
-    } else {
-        arch.sites()
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .filter(|s| s.auto_download)
-            .collect()
-    };
 
     let models: Vec<Model> = if arg_matches.is_present("models") {
         arg_matches
@@ -58,22 +42,27 @@ pub fn start_generator_thread<'a>(
         end = parse_date_string(end_date);
     }
 
+    let sites: Vec<String> = arg_matches
+        .values_of("sites")
+        .map(|site_iter| site_iter.map(|s| s.to_string()).collect())
+        .unwrap_or_else(Vec::new);
+
     spawn(move || {
         let missing_urls = match MissingUrlDb::open_or_create_404_db(&root) {
             Ok(missing_urls) => missing_urls,
             Err(err) => {
                 generator_tx
-                    .send(StepResult::IntializationError(err.to_string()))
+                    .send(StepResult::InitializationError(err.to_string()))
                     .expect("generator_tx send error.");
                 return;
             }
         };
 
-        let download_list = match build_download_list(&arch, &sites, &models, start, end) {
+        let download_list = match build_download_list(&arch, sites, &models, start, end) {
             Ok(a_vec) => a_vec,
             Err(err) => {
                 generator_tx
-                    .send(StepResult::IntializationError(err.to_string()))
+                    .send(StepResult::InitializationError(err.to_string()))
                     .expect("generator_tx send error.");
                 return;
             }
@@ -82,12 +71,28 @@ pub fn start_generator_thread<'a>(
         download_list
             .into_iter()
             // Filter out known bad combinations
-            .filter(|(site_id, _site, model, init_time)| {
+            .filter(|(site_id, _stn_num, model, init_time)| {
                 !invalid_combination(site_id, *model, *init_time)
             })
             // Filter out data already in the databse
             .filter(|(_site_id, site, model, init_time)| {
-                !arch.file_exists(&site, *model, init_time).unwrap_or(false)
+                !site
+                    .and_then(|s| arch.file_exists(s, *model, *init_time).ok())
+                    .unwrap_or(false)
+            })
+
+            //
+            // FIX KNOWN ISSUES WITH MISMATCHES BETWEEN URL AND ID IN THE FILE. SUPER HACK
+            //
+            .map(|(site_id, site, model, init_time)| {
+                if site_id == "KLDN"
+                    && model != Model::GFS
+                    && init_time >= NaiveDate::from_ymd(2020, 5, 1).and_hms(0, 0, 0)
+                {
+                    ("KDLN".to_owned(), site, model, init_time)
+                } else {
+                    (site_id, site, model, init_time)
+                }
             })
             // Add the url
             .filter_map(|(site_id, site, model, init_time)| {
@@ -101,9 +106,10 @@ pub fn start_generator_thread<'a>(
             // Limit the number of downloads.
             .take(1_000)
             // Pass it off to another thread for downloading.
-            .map(move |(_site_id, site, model, init_time, url)| {
+            .map(move |(site_id, site, model, init_time, url)| {
                 StepResult::Request(ReqInfo {
-                    site: site.clone(),
+                    site_id,
+                    site,
                     model,
                     init_time,
                     url,
@@ -119,31 +125,65 @@ pub fn start_generator_thread<'a>(
     Ok(())
 }
 
-fn build_download_list<'a>(
+fn build_download_list(
     arch: &Archive,
-    sites: &'a [Site],
-    models: &'a [Model],
+    sites: Vec<String>,
+    models: &[Model],
     start: NaiveDateTime,
     end: NaiveDateTime,
-) -> Result<Vec<(String, &'a Site, Model, NaiveDateTime)>, BufkitDataErr> {
-    let mut to_ret: Vec<(String, &Site, Model, NaiveDateTime)> = models
+) -> Result<Vec<(String, Option<StationNumber>, Model, NaiveDateTime)>, BufkitDataErr> {
+    use std::time::Instant;
+
+    let start_long_request = Instant::now();
+    let site_model: Vec<(String, Option<StationNumber>, Model)> = if !sites.is_empty() {
+        println!("Using provided sites...");
+        models
+            .iter()
+            .flat_map(|&model| {
+                sites.iter().map(|s| s.to_lowercase()).map(move |s| {
+                    let stn_num = arch.station_num_for_id(&s, model).ok();
+                    (s, stn_num, model)
+                })
+            })
+            .collect()
+    } else {
+        println!("Make download list of sites...");
+        list_of_auto_download_sites_for_model(arch)?
+    };
+    let duration = start_long_request.elapsed();
+    println!("....done! with sites it took: {:?}", duration);
+
+    let mut to_ret: Vec<(String, Option<StationNumber>, Model, NaiveDateTime)> = site_model
         .iter()
-        .flat_map(move |model| {
+        .flat_map(|(id, stn, model)| {
             model
-                .all_runs(&end, &(start - Duration::hours(model.hours_between_runs())))
-                .map(move |init_time| (*model, init_time))
-        })
-        .flat_map(|(model, init_time)| {
-            sites
-                .iter()
-                .filter_map(|s| arch.id_for_site(s).map(|site_id| (site_id, s)))
-                .map(move |(site_id, site)| (site_id.to_uppercase(), site, model, init_time))
+                .all_runs(
+                    &end,
+                    &(start - chrono::Duration::hours(model.hours_between_runs())),
+                )
+                .map(move |vt| (id.clone(), *stn, *model, vt))
         })
         .collect();
 
     to_ret.sort_by_key(|val| std::cmp::Reverse(val.3));
 
     Ok(to_ret)
+}
+
+fn list_of_auto_download_sites_for_model(
+    arch: &Archive,
+) -> Result<Vec<(String, Option<StationNumber>, Model)>, BufkitDataErr> {
+    Ok(arch
+        .auto_downloads()?
+        .into_iter()
+        .map(
+            |bufkit_data::DownloadInfo {
+                 id,
+                 station_num,
+                 model,
+             }| (id, Some(station_num), model),
+        )
+        .collect())
 }
 
 fn invalid_combination(site: &str, model: Model, init_time: NaiveDateTime) -> bool {
@@ -165,7 +205,13 @@ fn invalid_combination(site: &str, model: Model, init_time: NaiveDateTime) -> bo
         _ => init_time < NaiveDate::from_ymd(2011, 1, 1).and_hms(0, 0, 0),
     };
 
-    model_site_mismatch || model_init_time_mismatch
+    let expired_sites = match (site.deref(), model) {
+        ("lrr", Model::GFS) => init_time >= NaiveDate::from_ymd(2018, 12, 5).and_hms(0, 0, 0),
+        ("c17", Model::GFS) => init_time >= NaiveDate::from_ymd(2018, 12, 5).and_hms(0, 0, 0),
+        _ => false,
+    };
+
+    model_site_mismatch || model_init_time_mismatch || expired_sites
 }
 
 fn build_url(

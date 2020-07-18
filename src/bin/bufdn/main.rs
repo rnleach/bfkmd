@@ -2,7 +2,7 @@
 //!
 //! Downloads Bufkit files and stores them in your archive.
 use crate::missing_url::MissingUrlDb;
-use bufkit_data::{Model, Site};
+use bufkit_data::{Model, StationNumber};
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{crate_version, App, Arg, ArgMatches};
 use crossbeam_channel as channel;
@@ -89,12 +89,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             Success(req) => {
                 println!(
                     "Success for {:>4} {:^6} {}.",
-                    req.site.id.as_deref().unwrap_or(""),
-                    req.model,
-                    req.init_time
+                    req.site_id, req.model, req.init_time
                 );
             }
-            IntializationError(msg) => println!("Error initializing threads: {}", msg),
+            InitializationError(msg) => println!("Error initializing threads: {}", msg),
             _ => unreachable!(),
         }
     }
@@ -121,14 +119,6 @@ fn parse_args() -> ArgMatches<'static> {
                     "site, then it won't be in the index yet and you will need to also specify ",
                     "which models to download for the site."
                 )),
-        )
-        .arg(
-            Arg::with_name("all-sites")
-                .multiple(false)
-                .long("all-sites")
-                .takes_value(false)
-                .conflicts_with("sites")
-                .help("Try downloading for all sites in the index."),
         )
         .arg(
             Arg::with_name("models")
@@ -210,6 +200,11 @@ pub enum StepResult {
     Request(ReqInfo),
     BufkitFileAsString(ReqInfo, String), // Data, sounding loaded as text data, not parsed
     Success(ReqInfo),
+    StationIdMoved {
+        info: ReqInfo,
+        old: StationNumber,
+        new: StationNumber,
+    },
 
     // Errors
     URLNotFound(ReqInfo),
@@ -219,12 +214,13 @@ pub enum StepResult {
     ArchiveError(ReqInfo, String),       // Error adding it to the archive
     MissingUrlDbError(ReqInfo, String),  // Error dealing with the MissingUrlDb
     ErrorSavingCurrent(String),          // Error saving the most recent file to a local drive.
-    IntializationError(String),          // Error setting up threads.
+    InitializationError(String),         // Error setting up threads.
 }
 
 #[derive(Debug, Clone)]
 pub struct ReqInfo {
-    site: Site,
+    site_id: String,
+    site: Option<StationNumber>,
     model: Model,
     init_time: NaiveDateTime,
     url: String,

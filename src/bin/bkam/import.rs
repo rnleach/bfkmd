@@ -1,8 +1,8 @@
 use bfkmd::bail;
-use bufkit_data::{Archive, BufkitDataErr, Model, Site};
+use bufkit_data::{AddFileResult, Archive, Model};
 use clap::ArgMatches;
 use sounding_bufkit::BufkitFile;
-use std::{convert::TryFrom, error::Error, path::PathBuf, str::FromStr};
+use std::{error::Error, path::PathBuf, str::FromStr};
 
 pub fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(root)?;
@@ -29,35 +29,13 @@ pub fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error
 
     for file in files {
         let f = BufkitFile::load(&file)?;
-        let data = f.data()?;
 
-        let anal = data
-            .into_iter()
-            .next()
-            .ok_or(BufkitDataErr::NotEnoughData)?;
-        let init_time = anal.0.valid_time().ok_or(BufkitDataErr::NotEnoughData)?;
-
-        let anal = data
-            .into_iter()
-            .last()
-            .ok_or(BufkitDataErr::NotEnoughData)?;
-        let end_time = anal.0.valid_time().ok_or(BufkitDataErr::NotEnoughData)?;
-
-        let station_num: i32 = anal
-            .0
-            .station_info()
-            .station_num()
-            .into_option()
-            .ok_or(BufkitDataErr::NotEnoughData)?;
-        let station_num = u32::try_from(station_num)?;
-
-        let site = Site {
-            station_num,
-            id: Some(site_id.to_uppercase()),
-            ..Site::default()
-        };
-
-        arch.add(&site, model, init_time, end_time, f.raw_text())?;
+        match arch.add(&site_id.to_uppercase(), model, f.raw_text()) {
+            AddFileResult::Ok(_) | AddFileResult::New(_) | AddFileResult::IdMovedStation { .. } => {
+                Ok(())
+            }
+            AddFileResult::Error(err) => Err(err),
+        }?;
     }
 
     Ok(())
