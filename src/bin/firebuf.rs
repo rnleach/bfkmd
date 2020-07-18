@@ -251,13 +251,11 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .map(str::to_owned)
         .map(PathBuf::from);
 
-    save_dir.as_ref().and_then(|path| {
-        if !path.is_dir() {
-            bail(&format!("save-dir path {} does not exist.", path.display()));
-        } else {
-            Some(())
-        }
-    });
+    if let Some(ref save_dir) = save_dir {
+        if !save_dir.is_dir() {
+            bail(&format!("save-dir path {} does not exist.", save_dir.display()));
+        } 
+    }
 
     Ok(CmdLineArgs {
         root,
@@ -505,9 +503,8 @@ fn print_stats(
         let mut vals: Vec<(NaiveDateTime, f32)> = vec![];
         for vt in &valid_times {
             graph_stats.get(vt).and_then(|hm| {
-                hm.get(&g_stat).and_then(|stat_val| {
+                hm.get(&g_stat).map(|stat_val| {
                     vals.push((*vt, *stat_val as f32));
-                    Some(())
                 })
             });
         }
