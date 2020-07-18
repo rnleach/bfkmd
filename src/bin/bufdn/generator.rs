@@ -80,6 +80,20 @@ pub fn start_generator_thread<'a>(
                     .and_then(|s| arch.file_exists(s, *model, *init_time).ok())
                     .unwrap_or(false)
             })
+
+            //
+            // FIX KNOWN ISSUES WITH MISMATCHES BETWEEN URL AND ID IN THE FILE. SUPER HACK
+            //
+            .map(|(site_id, site, model, init_time)| {
+                if site_id == "KLDN"
+                    && model != Model::GFS
+                    && init_time >= NaiveDate::from_ymd(2020, 5, 1).and_hms(0, 0, 0)
+                {
+                    ("KDLN".to_owned(), site, model, init_time)
+                } else {
+                    (site_id, site, model, init_time)
+                }
+            })
             // Add the url
             .filter_map(|(site_id, site, model, init_time)| {
                 match build_url(&site_id, model, &init_time) {

@@ -1,8 +1,8 @@
 use bfkmd::TablePrinter;
-use bufkit_data::{Archive, BufkitDataErr, Model, SiteInfo, StateProv, StationNumber};
+use bufkit_data::{Archive, BufkitDataErr, Model, StateProv, StationNumber, StationSummary};
 use chrono::FixedOffset;
 use clap::ArgMatches;
-use std::{collections::HashSet, error::Error, path::PathBuf, str::FromStr};
+use std::{error::Error, path::PathBuf, str::FromStr};
 use strum::IntoEnumIterator;
 
 pub fn sites(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
@@ -24,7 +24,7 @@ fn sites_list(
     //
     // This filter lets all sites pass
     //
-    let pass = &|_site: &SiteInfo| -> bool { true };
+    let pass = &|_site: &StationSummary| -> bool { true };
 
     //
     // Filter based on state
@@ -35,13 +35,13 @@ fn sites_list(
         StateProv::AL
     };
 
-    let state_filter = &|site: &SiteInfo| -> bool {
+    let state_filter = &|site: &StationSummary| -> bool {
         match site.state {
             Some(st) => st == state_value,
             None => false,
         }
     };
-    let in_state_pred: &dyn Fn(&SiteInfo) -> bool = if sub_sub_args.is_present("state") {
+    let in_state_pred: &dyn Fn(&StationSummary) -> bool = if sub_sub_args.is_present("state") {
         state_filter
     } else {
         pass
@@ -50,42 +50,45 @@ fn sites_list(
     //
     // Filter for missing any data
     //
-    let missing_any = &|site: &SiteInfo| -> bool { site.name.is_none() || site.state.is_none() };
-    let missing_any_pred: &dyn Fn(&SiteInfo) -> bool = if sub_sub_args.is_present("missing-data") {
-        missing_any
-    } else {
-        pass
+    let missing_any = &|site: &StationSummary| -> bool {
+        site.name.is_none() || site.time_zone.is_none() || site.state.is_none()
     };
+    let missing_any_pred: &dyn Fn(&StationSummary) -> bool =
+        if sub_sub_args.is_present("missing-data") {
+            missing_any
+        } else {
+            pass
+        };
 
     //
     // Filter for missing state
     //
-    let missing_state = &|site: &SiteInfo| -> bool { site.state.is_none() };
-    let missing_state_pred: &dyn Fn(&SiteInfo) -> bool = if sub_sub_args.is_present("missing-state")
-    {
-        missing_state
-    } else {
-        pass
-    };
+    let missing_state = &|site: &StationSummary| -> bool { site.state.is_none() };
+    let missing_state_pred: &dyn Fn(&StationSummary) -> bool =
+        if sub_sub_args.is_present("missing-state") {
+            missing_state
+        } else {
+            pass
+        };
 
     //
     // Filter based on auto download
     //
-    let auto_download = &|site: &SiteInfo| -> bool { site.auto_download };
-    let no_auto_download = &|site: &SiteInfo| -> bool { !site.auto_download };
-    let auto_download_pred: &dyn Fn(&SiteInfo) -> bool = if sub_sub_args.is_present("auto-download")
-    {
-        auto_download
-    } else if sub_sub_args.is_present("no-auto-download") {
-        no_auto_download
-    } else {
-        pass
-    };
+    let auto_download = &|site: &StationSummary| -> bool { site.auto_download };
+    let no_auto_download = &|site: &StationSummary| -> bool { !site.auto_download };
+    let auto_download_pred: &dyn Fn(&StationSummary) -> bool =
+        if sub_sub_args.is_present("auto-download") {
+            auto_download
+        } else if sub_sub_args.is_present("no-auto-download") {
+            no_auto_download
+        } else {
+            pass
+        };
 
     //
     // Combine filters to make an iterator over the sites.
     //
-    let mut master_list: Vec<SiteInfo> = arch.sites()?;
+    let mut master_list: Vec<StationSummary> = arch.station_summaries()?;
 
     master_list.sort_unstable_by(|left, right| {
         match (
@@ -128,15 +131,7 @@ fn sites_list(
 
     for site in sites_iter() {
         let station_num = site.station_num;
-        let ids = arch
-            .models(site.station_num)?
-            .into_iter()
-            .filter_map(|mdl| arch.ids(site.station_num, mdl).ok())
-            .flat_map(|ids| ids.into_iter())
-            .collect::<HashSet<String>>()
-            .into_iter()
-            .collect::<Vec<String>>()
-            .join(",");
+        let ids = site.ids_as_string();
         let state = site.state.map(|st| st.as_static_str()).unwrap_or(&"-");
         let name = site.name.as_ref().unwrap_or(&blank);
         let offset = site
@@ -145,15 +140,8 @@ fn sites_list(
             .unwrap_or_else(|| blank.clone());
         let notes = site.notes.as_ref().unwrap_or(&blank);
         let auto_dl = if site.auto_download { "Yes" } else { "No" };
-        let models = arch
-            .models(site.station_num)?
-            .into_iter()
-            .map(|mdl| mdl.as_static_str().to_owned())
-            .collect::<Vec<String>>()
-            .join(",");
-        let num_files: u32 = Model::iter()
-            .filter_map(|m| arch.count(station_num, m).ok())
-            .sum();
+        let models = site.models_as_string();
+        let num_files = site.number_of_files;
         let row = vec![
             station_num.to_string(),
             ids.to_string(),
@@ -259,8 +247,10 @@ fn sites_inventory(
             err @ Err(_) => err,
         }?;
 
-        let first = inv.iter().nth(0).unwrap(); // unwrap OK because we already checked not empty.
-        let last = inv.iter().last().unwrap(); // unwrap OK because we already checked not empty.
+        let (first, last) = match (inv.iter().nth(0), inv.iter().last()) {
+            (Some(first), Some(last)) => (first, last),
+            _ => continue,
+        };
 
         let missing = arch.missing_inventory(site.station_num, model, None)?;
 
