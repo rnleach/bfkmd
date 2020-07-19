@@ -1,10 +1,17 @@
 
 export RUSTFLAGS=-C target-cpu=native
 
-target_dir = target/release
+build_dir = target/release
+
+detected_OS = $(shell uname)
+ifeq ($(detected_OS), Linux)
+	target_dir = ~/usr/bin/
+else
+	target_dir = ~/bin/
+endif
 
 define build_prog
-	strip $(target_dir)/$(1) && cp $(target_dir)/$(1) ~/usr/bin/
+	strip $(build_dir)/$(1) && cp $(build_dir)/$(1) $(target_dir)
 endef
 
 install:
