@@ -69,8 +69,14 @@ fn save_latest(
     };
 
     for SaveLatestInfo { site_id, model } in updated_sites.into_iter() {
+        // HACK FOR KNOWN ISSUES WITH ONLINE ARCHIVE
+        let site_id = match (site_id.as_ref(), model) {
+            ("KDLN", Model::NAM) | ("KDLN", Model::NAM4KM) => "KLDN",
+            (_, _) => site_id.as_ref(),
+        };
+
         let buf = match arch
-            .station_num_for_id(&site_id, model)
+            .station_num_for_id(site_id, model)
             .and_then(|site| arch.retrieve_most_recent(site, model))
         {
             Ok(data_str) => data_str,
