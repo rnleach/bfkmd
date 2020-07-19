@@ -237,21 +237,6 @@ fn sites_inventory(
 ) -> Result<(), Box<dyn Error>> {
     let arch = &Archive::connect(root)?;
 
-    let site = {
-        // Safe to unwrap because the argument is required.
-        let str_val = sub_sub_args.value_of("stn").unwrap();
-
-        if let Ok(stn_num) = str_val.parse::<u32>().map(StationNumber::from) {
-            stn_num
-        } else {
-            bfkmd::site_id_to_station_num(arch, str_val)?
-        }
-    };
-
-    let site = arch
-        .site(site)
-        .ok_or_else(|| BufkitDataErr::InvalidSiteId(site.to_string()))?;
-
     let model = sub_sub_args.value_of("model").unwrap();
     let model = match Model::from_str(model) {
         Ok(model) => model,
@@ -259,6 +244,21 @@ fn sites_inventory(
             bail(&format!("Model {} does not exist in the archive!", model));
         }
     };
+
+    let site = {
+        // Safe to unwrap because the argument is required.
+        let str_val = sub_sub_args.value_of("stn").unwrap();
+
+        if let Ok(stn_num) = str_val.parse::<u32>().map(StationNumber::from) {
+            stn_num
+        } else {
+            arch.station_num_for_id(str_val, model)?
+        }
+    };
+
+    let site = arch
+        .site(site)
+        .ok_or_else(|| BufkitDataErr::InvalidSiteId(site.to_string()))?;
 
     let inv = match arch.inventory(site.station_num, model) {
         ok @ Ok(_) => ok,
