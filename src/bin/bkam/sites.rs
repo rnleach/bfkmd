@@ -281,9 +281,12 @@ fn sites_inventory(
 
     if missing.is_empty() {
         println!(
-            "\nInventory for {} at {}({}).",
+            "\nInventory for {} at{}({}).",
             model,
-            site.name.as_deref().unwrap_or(""),
+            site.name
+                .map(|nm| format!(" {} ", nm))
+                .as_deref()
+                .unwrap_or(" "),
             site.station_num.to_string()
         );
         println!("   start: {}", first);
@@ -292,9 +295,12 @@ fn sites_inventory(
     } else {
         let mut tp = TablePrinter::new()
             .with_title(format!(
-                "Inventory for {} at station {}({}).",
+                "Inventory for {} at{}({}).",
                 model,
-                site.name.as_deref().unwrap_or(""),
+                site.name
+                    .map(|nm| format!(" {} ", nm))
+                    .as_deref()
+                    .unwrap_or(" "),
                 site.station_num.to_string()
             ))
             .with_header(format!("{} -> {}", first, last));
@@ -320,8 +326,8 @@ fn sites_inventory(
             } else {
                 let num_cycles = (end_run - start_run).num_hours() / model.hours_between_runs() + 1;
                 cycles.push(format!("{}", num_cycles));
-                start.push(format!("{}", start_run));
-                end.push(format!("{}", end_run));
+                start.push(format!("{}", start_run.format("%Y-%m-%d %H")));
+                end.push(format!("{}", end_run.format("%Y-%m-%d %H")));
                 total_missing += num_cycles;
 
                 start_run = missing;
@@ -333,11 +339,11 @@ fn sites_inventory(
         // Don't forget to add the last one!
         let num_cycles = (end_run - start_run).num_hours() / model.hours_between_runs() + 1;
         cycles.push(format!("{}", num_cycles));
-        start.push(format!("{}", start_run));
-        end.push(format!("{}", end_run));
+        start.push(format!("{}", start_run.format("%Y-%m-%d %H")));
+        end.push(format!("{}", end_run.format("%Y-%m-%d %H")));
         total_missing += num_cycles;
 
-        cycles.push(format!("-- {} --", total_missing));
+        cycles.push(format!("- {} -", total_missing));
         start.push(" -- Total -- ".to_owned());
         end.push("".to_owned());
 

@@ -29,7 +29,7 @@ pub fn site_id_to_station_num(arch: &Archive, id: &str) -> Result<StationNumber,
             Err(_) => continue,
         };
 
-        if value != 0 {
+        if value == 0 || value == val {
             value = val;
         } else {
             return Err(StrErr {
