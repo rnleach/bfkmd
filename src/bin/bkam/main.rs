@@ -133,6 +133,13 @@ fn run() -> Result<(), Box<dyn Error>> {
                                 .required(true)
                                 .takes_value(true)
                                 .help("The station number or identifier of the site to get the inventory for."),
+                        )
+                        .arg(
+                            Arg::with_name("model")
+                                .index(2)
+                                .required(true)
+                                .takes_value(true)
+                                .help("The model to get the inventory for, e.g. gfs or nam or nam4km"),
                         ),
                 ),
         ).subcommand(

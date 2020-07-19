@@ -1,9 +1,8 @@
-use bfkmd::TablePrinter;
+use bfkmd::{bail, TablePrinter};
 use bufkit_data::{Archive, BufkitDataErr, Model, StateProv, StationNumber, StationSummary};
 use chrono::FixedOffset;
 use clap::ArgMatches;
 use std::{error::Error, path::PathBuf, str::FromStr};
-use strum::IntoEnumIterator;
 
 pub fn sites(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     match sub_args.subcommand() {
@@ -253,87 +252,100 @@ fn sites_inventory(
         .site(site)
         .ok_or_else(|| BufkitDataErr::InvalidSiteId(site.to_string()))?;
 
-    for model in Model::iter() {
-        let inv = match arch.inventory(site.station_num, model) {
-            ok @ Ok(_) => ok,
-            Err(BufkitDataErr::NotEnoughData) => {
-                println!(
-                    "No data for model {} and site {}.",
-                    model.as_static_str(),
-                    site.station_num.to_string()
-                );
-                continue;
-            }
-            err @ Err(_) => err,
-        }?;
-
-        let (first, last) = match (inv.iter().nth(0), inv.iter().last()) {
-            (Some(first), Some(last)) => (first, last),
-            _ => continue,
-        };
-
-        let missing = arch.missing_inventory(site.station_num, model, None)?;
-
-        if missing.is_empty() {
-            println!(
-                "\nInventory for {} at {}.",
-                model,
-                site.station_num.to_string()
-            );
-            println!("   start: {}", first);
-            println!("     end: {}", last);
-            println!("          No missing runs!");
-        } else {
-            let mut tp = TablePrinter::new()
-                .with_title(format!(
-                    "Inventory for {} at station {}.",
-                    model,
-                    site.station_num.to_string()
-                ))
-                .with_header(format!("{} -> {}", first, last));
-
-            let dl = if site.auto_download { "" } else { " NOT" };
-            tp = tp.with_footer(format!("This site is{} automatically downloaded.", dl));
-
-            let mut cycles = vec![];
-            let mut start = vec![];
-            let mut end = vec![];
-
-            let mut iter = missing.into_iter();
-            // Unwrap OK because we already check is_empty()
-            let mut start_run = iter.next().unwrap();
-            let mut end_run = start_run;
-            let mut last_round = start_run;
-            for missing in iter {
-                if (missing - last_round).num_hours() / model.hours_between_runs() == 1 {
-                    end_run = missing;
-                    last_round = missing;
-                    continue;
-                } else {
-                    let num_cycles =
-                        (end_run - start_run).num_hours() / model.hours_between_runs() + 1;
-                    cycles.push(format!("{}", num_cycles));
-                    start.push(format!("{}", start_run));
-                    end.push(format!("{}", end_run));
-
-                    start_run = missing;
-                    end_run = missing;
-                    last_round = missing;
-                }
-            }
-
-            // Don't forget to add the last one!
-            let num_cycles = (end_run - start_run).num_hours() / model.hours_between_runs() + 1;
-            cycles.push(format!("{}", num_cycles));
-            start.push(format!("{}", start_run));
-            end.push(format!("{}", end_run));
-
-            tp = tp
-                .with_column("Cycles", &cycles)
-                .with_column("From", &start)
-                .with_column("To", &end);
-            tp.print()?;
+    let model = sub_sub_args.value_of("model").unwrap();
+    let model = match Model::from_str(model) {
+        Ok(model) => model,
+        Err(_) => {
+            bail(&format!("Model {} does not exist in the archive!", model));
         }
+    };
+
+    let inv = match arch.inventory(site.station_num, model) {
+        ok @ Ok(_) => ok,
+        Err(BufkitDataErr::NotEnoughData) => {
+            bail(&format!(
+                "No data for model {} and site {}.",
+                model.as_static_str(),
+                site.station_num.to_string()
+            ));
+        }
+        err @ Err(_) => err,
+    }?;
+
+    let (first, last) = match (inv.iter().nth(0), inv.iter().last()) {
+        (Some(first), Some(last)) => (first, last),
+        _ => unreachable!(),
+    };
+
+    let missing = arch.missing_inventory(site.station_num, model, None)?;
+
+    if missing.is_empty() {
+        println!(
+            "\nInventory for {} at {}({}).",
+            model,
+            site.name.as_deref().unwrap_or(""),
+            site.station_num.to_string()
+        );
+        println!("   start: {}", first);
+        println!("     end: {}", last);
+        println!("          No missing runs!");
+    } else {
+        let mut tp = TablePrinter::new()
+            .with_title(format!(
+                "Inventory for {} at station {}({}).",
+                model,
+                site.name.as_deref().unwrap_or(""),
+                site.station_num.to_string()
+            ))
+            .with_header(format!("{} -> {}", first, last));
+
+        let dl = if site.auto_download { "" } else { " NOT" };
+        tp = tp.with_footer(format!("This site is{} automatically downloaded.", dl));
+
+        let mut cycles = vec![];
+        let mut start = vec![];
+        let mut end = vec![];
+
+        let mut iter = missing.into_iter();
+        // Unwrap OK because we already check is_empty()
+        let mut start_run = iter.next().unwrap();
+        let mut end_run = start_run;
+        let mut last_round = start_run;
+        let mut total_missing = 0;
+        for missing in iter {
+            if (missing - last_round).num_hours() / model.hours_between_runs() == 1 {
+                end_run = missing;
+                last_round = missing;
+                continue;
+            } else {
+                let num_cycles = (end_run - start_run).num_hours() / model.hours_between_runs() + 1;
+                cycles.push(format!("{}", num_cycles));
+                start.push(format!("{}", start_run));
+                end.push(format!("{}", end_run));
+                total_missing += num_cycles;
+
+                start_run = missing;
+                end_run = missing;
+                last_round = missing;
+            }
+        }
+
+        // Don't forget to add the last one!
+        let num_cycles = (end_run - start_run).num_hours() / model.hours_between_runs() + 1;
+        cycles.push(format!("{}", num_cycles));
+        start.push(format!("{}", start_run));
+        end.push(format!("{}", end_run));
+        total_missing += num_cycles;
+
+        cycles.push(format!("-- {} --", total_missing));
+        start.push(" -- Total -- ".to_owned());
+        end.push("".to_owned());
+
+        tp = tp
+            .with_column("Cycles", &cycles)
+            .with_column("From", &start)
+            .with_column("To", &end);
+        tp.print()?;
     }
 
     Ok(())
