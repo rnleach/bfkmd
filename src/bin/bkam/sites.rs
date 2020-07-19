@@ -91,13 +91,24 @@ fn sites_list(
     let mut master_list: Vec<StationSummary> = arch.station_summaries()?;
 
     master_list.sort_unstable_by(|left, right| {
+        let lnum: u32 = left.station_num.into();
+        let rnum: u32 = right.station_num.into();
+
         match (
             left.state.map(|l| l.as_static_str()),
             right.state.map(|r| r.as_static_str()),
+            lnum,
+            rnum,
         ) {
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            _ => std::cmp::Ordering::Equal,
+            (Some(_), None, _, _) => std::cmp::Ordering::Less,
+            (None, Some(_), _, _) => std::cmp::Ordering::Greater,
+            // Within a state, order by station number
+            (Some(left), Some(right), lnum, rnum) => match left.cmp(right) {
+                std::cmp::Ordering::Equal => lnum.cmp(&rnum),
+                x => x,
+            },
+            // Without a state, order by station number
+            (None, None, lnum, rnum) => lnum.cmp(&rnum),
         }
     });
 
@@ -165,14 +176,18 @@ fn sites_modify(
     _sub_args: &ArgMatches,
     sub_sub_args: &ArgMatches,
 ) -> Result<(), Box<dyn Error>> {
-    let arch = Archive::connect(root)?;
+    let arch = &Archive::connect(root)?;
 
-    // Safe to unwrap because the argument is required.
-    let site = sub_sub_args
-        .value_of("stn")
-        .unwrap()
-        .parse::<u32>()
-        .map(StationNumber::from)?;
+    let site = {
+        // Safe to unwrap because the argument is required.
+        let str_val = sub_sub_args.value_of("stn").unwrap();
+
+        if let Ok(stn_num) = str_val.parse::<u32>().map(StationNumber::from) {
+            stn_num
+        } else {
+            bfkmd::site_id_to_station_num(arch, str_val)?
+        }
+    };
 
     let mut site = arch
         .site(site)
@@ -221,14 +236,19 @@ fn sites_inventory(
     _sub_args: &ArgMatches,
     sub_sub_args: &ArgMatches,
 ) -> Result<(), Box<dyn Error>> {
-    let arch = Archive::connect(root)?;
+    let arch = &Archive::connect(root)?;
 
-    // Safe to unwrap because the argument is required.
-    let site = sub_sub_args
-        .value_of("station_number")
-        .unwrap()
-        .parse::<u32>()
-        .map(StationNumber::from)?;
+    let site = {
+        // Safe to unwrap because the argument is required.
+        let str_val = sub_sub_args.value_of("stn").unwrap();
+
+        if let Ok(stn_num) = str_val.parse::<u32>().map(StationNumber::from) {
+            stn_num
+        } else {
+            bfkmd::site_id_to_station_num(arch, str_val)?
+        }
+    };
+
     let site = arch
         .site(site)
         .ok_or_else(|| BufkitDataErr::InvalidSiteId(site.to_string()))?;

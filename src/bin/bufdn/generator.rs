@@ -80,7 +80,6 @@ pub fn start_generator_thread<'a>(
                     .and_then(|s| arch.file_exists(s, *model, *init_time).ok())
                     .unwrap_or(false)
             })
-
             //
             // FIX KNOWN ISSUES WITH MISMATCHES BETWEEN URL AND ID IN THE FILE. SUPER HACK
             //

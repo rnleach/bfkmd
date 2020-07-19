@@ -15,12 +15,20 @@ pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>
         .flat_map(|site_iter| site_iter.map(ToOwned::to_owned))
         .collect();
 
-    let mut models: Vec<Model> = sub_args
-        .values_of("models")
-        .into_iter()
-        .flat_map(|model_iter| model_iter.map(Model::from_str))
-        .filter_map(Result::ok)
-        .collect();
+    let models = {
+        let mut models: Vec<Model> = sub_args
+            .values_of("models")
+            .into_iter()
+            .flat_map(|model_iter| model_iter.map(Model::from_str))
+            .filter_map(Result::ok)
+            .collect();
+
+        if models.is_empty() {
+            models = Model::iter().collect();
+        }
+
+        models
+    };
 
     let after = sub_args
         .value_of("after")
@@ -31,10 +39,6 @@ pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>
         .value_of("before")
         .map(|before_str| parse_date_string(before_str))
         .unwrap_or_else(|| Utc::now().naive_utc());
-
-    if models.is_empty() {
-        models = Model::iter().collect();
-    }
 
     for &model in &models {
         let sites: Vec<StationNumber> = if sites.is_empty() {

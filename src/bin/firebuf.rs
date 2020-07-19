@@ -253,8 +253,11 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
 
     if let Some(ref save_dir) = save_dir {
         if !save_dir.is_dir() {
-            bail(&format!("save-dir path {} does not exist.", save_dir.display()));
-        } 
+            bail(&format!(
+                "save-dir path {} does not exist.",
+                save_dir.display()
+            ));
+        }
     }
 
     Ok(CmdLineArgs {
