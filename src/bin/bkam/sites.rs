@@ -266,7 +266,7 @@ fn sites_inventory(
             bail(&format!(
                 "No data for model {} and site {}.",
                 model.as_static_str(),
-                site.station_num.to_string()
+                site.description(),
             ));
         }
         err @ Err(_) => err,
@@ -280,30 +280,22 @@ fn sites_inventory(
     let missing = arch.missing_inventory(site.station_num, model, None)?;
 
     if missing.is_empty() {
-        println!(
-            "\nInventory for {} at{}({}).",
-            model,
-            site.name
-                .map(|nm| format!(" {} ", nm))
-                .as_deref()
-                .unwrap_or(" "),
-            site.station_num.to_string()
-        );
+        println!("\nInventory for {} at {}.", model, site.description(),);
         println!("   start: {}", first);
         println!("     end: {}", last);
         println!("          No missing runs!");
     } else {
         let mut tp = TablePrinter::new()
             .with_title(format!(
-                "Inventory for {} at{}({}).",
+                "Inventory for {} at {}.",
                 model,
-                site.name
-                    .map(|nm| format!(" {} ", nm))
-                    .as_deref()
-                    .unwrap_or(" "),
-                site.station_num.to_string()
+                site.description(),
             ))
-            .with_header(format!("{} -> {}", first, last));
+            .with_header(format!(
+                "{} -> {}",
+                first.format("%Y-%m-%d %H"),
+                last.format("%Y-%m-%d %H")
+            ));
 
         let dl = if site.auto_download { "" } else { " NOT" };
         tp = tp.with_footer(format!("This site is{} automatically downloaded.", dl));

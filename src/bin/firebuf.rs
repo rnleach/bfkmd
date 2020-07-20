@@ -36,26 +36,32 @@ fn run() -> Result<(), Box<dyn Error>> {
     let g_stats = &args.graph_stats;
     let t_stats = &args.table_stats;
 
-    for site_id in &args.sites {
-        for &model in &args.models {
-            let station_num = match arch.station_num_for_id(site_id, model) {
-                Ok(station_num) => station_num,
-                Err(BufkitDataErr::NotInIndex) => {
-                    println!(
-                        "No data in archive for {} at {}.",
-                        model.as_static_str(),
-                        site_id,
-                    );
-                    continue;
-                }
-                Err(err) => return Err(err.into()),
-            };
+    for &model in &args.models {
+        let sites: Vec<(SiteInfo, String)> = if args.sites.is_empty() {
+            arch.sites_and_ids_for(model)?
+        } else {
+            args.sites
+                .iter()
+                .filter_map(|site_id| match arch.station_num_for_id(site_id, model) {
+                    Ok(station_num) => Some((site_id.clone(), station_num)),
+                    Err(BufkitDataErr::NotInIndex) => {
+                        println!(
+                            "No data in archive for {} at {}.",
+                            model.as_static_str(),
+                            site_id,
+                        );
+                        None
+                    }
+                    Err(err) => {
+                        println!("Database error: {}", err);
+                        None
+                    }
+                })
+                .filter_map(|(site_id, stn_num)| arch.site(stn_num).map(|si| (si, site_id)))
+                .collect()
+        };
 
-            let site = match arch.site(station_num) {
-                Some(site) => site,
-                None => continue,
-            };
-
+        for (site, site_id) in sites.into_iter() {
             let stats = &match calculate_stats(arch, &site, model, args.init_time, g_stats, t_stats)
             {
                 Ok(stats) => stats,
@@ -63,11 +69,11 @@ fn run() -> Result<(), Box<dyn Error>> {
             };
 
             if args.print {
-                print_stats(&site, site_id, model, stats, g_stats, t_stats)?;
+                print_stats(&site, &site_id, model, stats, g_stats, t_stats)?;
             }
 
             if let Some(ref path) = args.save_dir {
-                save_stats(site_id, model, stats, g_stats, t_stats, path)?;
+                save_stats(&site_id, model, stats, g_stats, t_stats, path)?;
             }
         }
     }
@@ -86,7 +92,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .short("s")
                 .long("sites")
                 .takes_value(true)
-                .required(true)
+                .required(false)
                 .help("Site identifiers (e.g. kord, katl, smn)."),
         )
         .arg(
@@ -95,6 +101,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .short("m")
                 .long("models")
                 .takes_value(true)
+                .required(false)
                 .possible_values(
                     &Model::iter()
                         .map(|val| val.as_static_str())
@@ -419,13 +426,10 @@ fn print_stats(
         days.sort();
 
         let title = format!(
-            "Fire Indexes for {}{} ({}).",
-            site.name.as_deref().unwrap_or(""),
-            match site.state {
-                Some(st) => format!(", {}", st.as_static_str()),
-                None => "".to_owned(),
-            },
-            site_id
+            "Fire Indexes from {} at {} ({}).",
+            model.as_static_str(),
+            site.description(),
+            site_id,
         );
 
         let header = format!(
@@ -542,14 +546,10 @@ fn print_stats(
         println!(
             "{:^78}",
             format!(
-                "{} {} for {}{} ({})",
+                "{} {} for {} ({})",
                 model,
                 g_stat.as_static(),
-                site.name.as_deref().unwrap_or(""),
-                match site.state {
-                    Some(st) => format!(", {}", st.as_static_str()),
-                    None => "".to_owned(),
-                },
+                site.description(),
                 site_id
             )
         );
