@@ -3,6 +3,7 @@ use clap::{crate_version, App, Arg, SubCommand};
 use dirs::home_dir;
 use std::{error::Error, path::PathBuf};
 
+mod copy;
 mod create;
 mod export;
 mod fix;
@@ -246,6 +247,52 @@ fn run() -> Result<(), Box<dyn Error>> {
                             " with 'model' and 'site' arguments.")),
                 )
         ).subcommand(
+            SubCommand::with_name("copy")
+                .about("Copy some of the archive to a new archive.")
+                .arg(
+                    Arg::with_name("sites")
+                        .short("s")
+                        .long("sites")
+                        .required(true)
+                        .takes_value(true)
+                        .multiple(true)
+                        .help("The site(s) to copy.")
+                        .long_help(concat!(
+                            "Copy data for these sites. This must be combined  with 'model' and",
+                            " 'before' or 'after' arguments to narrow the specification.")),
+                ).arg(
+                    Arg::with_name("models")
+                        .short("m")
+                        .long("models")
+                        .takes_value(true)
+                        .required(true)
+                        .multiple(true)
+                        .help("The model(s) to copy data for, e.g. gfs, GFS, NAM4KM, nam.")
+                        .long_help(concat!(
+                            "Copy data for these models only. This must be combined with 'site' and",
+                            " 'before' or 'after' arguments to narrow the specification.")),
+                ).arg(
+                    Arg::with_name("start")
+                        .long("start")
+                        .takes_value(true)
+                        .help("Copy data after (and including) this time. YYYY-MM-DD-HH")
+                        .long_help("Copy all data after (and including) this date.")
+                ).arg(
+                    Arg::with_name("end")
+                        .long("end")
+                        .takes_value(true)
+                        .help("Copy data up to and including this time. YYYY-MM-DD-HH")
+                        .long_help("Copy all data up to (and including) this date."),
+                ).arg(
+                    Arg::with_name("dest")
+                        .long("destination")
+                        .short("d")
+                        .index(1)
+                        .required(true)
+                        .takes_value(true)
+                        .help("Destination directory of copy.")
+                )
+        ).subcommand(
             SubCommand::with_name("fix")
                 .about("Find and fix inconsistencies in the archive.")
         );
@@ -265,6 +312,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         ("import", Some(sub_args)) => import::import(root, sub_args)?,
         ("purge", Some(sub_args)) => purge::purge(root, sub_args)?,
         ("fix", Some(sub_args)) => fix::fix(root, sub_args)?,
+        ("copy", Some(sub_args)) => copy::copy(root, sub_args)?,
         _ => unreachable!(),
     }
 
