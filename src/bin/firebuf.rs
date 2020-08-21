@@ -424,6 +424,11 @@ fn print_stats(
 
         let mut days: Vec<NaiveDate> = vals.keys().cloned().collect();
         days.sort();
+        let days = days;
+        let day_labels = days
+            .iter()
+            .map(|dt| dt.format("%a, %m/%d/%Y"))
+            .collect::<Vec<_>>();
 
         let title = format!(
             "Fire Indexes from {} at {} ({}).",
@@ -454,7 +459,7 @@ fn print_stats(
             .with_title(title)
             .with_header(header)
             .with_footer(footer)
-            .with_column("Date", &days);
+            .with_column("Date", &day_labels);
 
         for &table_stat in t_stats {
             use crate::TableStatArg::*;
@@ -463,9 +468,6 @@ fn print_stats(
                 Some(vals) => vals,
                 Option::None => continue,
             };
-
-            let mut days: Vec<NaiveDate> = vals.keys().cloned().collect();
-            days.sort();
 
             let daily_stat_values = days.iter().map(|d| vals[d]);
             let daily_stat_values: Vec<String> = match table_stat {
