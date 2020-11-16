@@ -44,15 +44,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         .or_else(|| home_dir().map(|hd| hd.join("bufkit")))
         .expect("Invalid root.");
 
-    let save_dir: Option<PathBuf> = matches.value_of("save-dir").map(PathBuf::from);
-
     let (generator_tx, dl_rx) = channel::bounded::<StepResult>(CAPACITY);
     let (dl_tx, save_rx) = channel::bounded::<StepResult>(CAPACITY);
     let (save_tx, print_rx) = channel::bounded::<StepResult>(CAPACITY);
 
     generator::start_generator_thread(root.clone(), &matches, generator_tx)?;
     download::start_download_threads(dl_rx, dl_tx);
-    db_writer::start_writer_thread(root.clone(), save_dir, save_rx, save_tx);
+    db_writer::start_writer_thread(root.clone(), save_rx, save_tx);
 
     let too_old_to_be_missing = Utc::now().naive_utc() - Duration::hours(27);
     let missing_urls = MissingUrlDb::open_or_create_404_db(&root)?;
@@ -177,17 +175,6 @@ fn parse_args() -> ArgMatches<'static> {
                 .conflicts_with("create")
                 .global(true),
         )
-        .arg(
-            Arg::with_name("save-dir")
-                .long("save-dir")
-                .takes_value(true)
-                .help("A location to save the most recent version of a file for a site/model pair.")
-                .long_help(concat!(
-                    "The directory to save the most recent version of a bufkit sounding downloaded",
-                    " for a site/model pair. If a file for this site/model already exists there, ",
-                    "it will be overwritten."
-                )),
-        )
         .after_help(concat!(
             "To download data for a new site for the first time you must also specify the model."
         ))
@@ -213,7 +200,6 @@ pub enum StepResult {
     ParseError(ReqInfo, String),         // An error during parsing
     ArchiveError(ReqInfo, String),       // Error adding it to the archive
     MissingUrlDbError(ReqInfo, String),  // Error dealing with the MissingUrlDb
-    ErrorSavingCurrent(String),          // Error saving the most recent file to a local drive.
     InitializationError(String),         // Error setting up threads.
 }
 
