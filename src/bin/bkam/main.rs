@@ -168,6 +168,11 @@ fn run() -> Result<(), Box<dyn Error>> {
                             " Format is YYYY-MM-DD-HH."
                         )),
                 ).arg(
+                    Arg::with_name("no-prefix-date")
+                        .long("no-prefix-date")
+                        .takes_value(false)
+                        .help("Do not prefix the date in YYYYMMDDHHZ format to the file name.")
+                ).arg(
                     Arg::with_name("site")
                         .index(1)
                         .required(true)

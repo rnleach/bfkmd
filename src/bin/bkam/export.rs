@@ -63,15 +63,24 @@ pub fn export(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error
         None => start_date,
     };
 
+    let no_prefix_date = sub_args.is_present("no-prefix-date");
+
     match (start_date, end_date) {
         (OptionalDateArg::NotSpecified, OptionalDateArg::NotSpecified) => {
             let data = arch.retrieve_most_recent(site, model)?;
-            save_file(&target, site_id, model, None, &data)?;
+            save_file(&target, site_id, model, None, no_prefix_date, &data)?;
         }
         (OptionalDateArg::Specified(start), OptionalDateArg::Specified(end)) => {
             for init_time in model.all_runs(&start, &end) {
                 let data = arch.retrieve(site, model, init_time)?;
-                save_file(&target, site_id, model, Some(init_time), &data)?;
+                save_file(
+                    &target,
+                    site_id,
+                    model,
+                    Some(init_time),
+                    no_prefix_date,
+                    &data,
+                )?;
             }
         }
         _ => unreachable!(),
@@ -85,19 +94,21 @@ fn save_file(
     site_id: &str,
     model: Model,
     init_time: Option<NaiveDateTime>,
+    no_prefix_date: bool,
     data: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let fname: String = if let Some(init_time) = init_time {
-        let file_string = init_time.format("%Y%m%d%HZ").to_string();
+    let fname: String = match (no_prefix_date, init_time) {
+        (true, Some(init_time)) => {
+            let file_string = init_time.format("%Y%m%d%HZ").to_string();
 
-        format!(
-            "{}_{}_{}.buf",
-            file_string,
-            model.as_static_str(),
-            site_id.to_uppercase()
-        )
-    } else {
-        format!("{}_{}.buf", site_id.to_uppercase(), model.as_static_str(),)
+            format!(
+                "{}_{}_{}.buf",
+                file_string,
+                model.as_static_str(),
+                site_id.to_uppercase()
+            )
+        }
+        _ => format!("{}_{}.buf", site_id.to_uppercase(), model.as_static_str(),),
     };
 
     let save_path = save_dir.join(fname);
