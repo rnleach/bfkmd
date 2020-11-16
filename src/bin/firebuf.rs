@@ -557,7 +557,7 @@ fn print_stats(
         );
 
         Chart::new(160, 45, 0.0, 9.0)
-            .lineplot(Shape::Steps(values_plot.as_slice()))
+            .lineplot(&Shape::Steps(values_plot.as_slice()))
             .nice();
     }
     //

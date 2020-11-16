@@ -1,12 +1,12 @@
 [package]
 name = "bfkmd"
-version = "0.4.3"
+version = "0.5.0"
 authors = ["Ryan <rnleach@users.noreply.github.com>"]
 edition = "2018"
 publish = false
 
 [dependencies]
-bufkit-data = "0.15.2"
+bufkit-data = "0.16"
 chrono = "0.4.2"
 clap = { version = "2.32.0", features = ["wrap_help"]}
 crossbeam-channel = "0.4.2"
@@ -16,11 +16,11 @@ itertools = "0.9"
 metfor = "0.7.4"
 pbr = "1.0.1"
 reqwest = { version = "0.10.4", features = ["blocking"] }
-rusqlite = { version = "0.23", features = ["bundled", "chrono"], default-features = false }
+rusqlite = { version = "0.24", features = ["bundled", "chrono"], default-features = false }
 sounding-analysis = "^0.14"
 sounding-bufkit = "^0.14"
-strum = "0.18"
-strum_macros = "0.18"
+strum = "0.19"
+strum_macros = "0.19"
 textplots = "0.5.0"
 threadpool = "1.7.1"
 unicode-width = "0.1.5"

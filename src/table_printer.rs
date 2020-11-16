@@ -88,9 +88,6 @@ impl TablePrinter {
     pub fn print_with_min_width(self, min_width: usize) -> Result<(), std::fmt::Error> {
         let (table_width, col_widths) = self.calculate_widths(min_width);
 
-        // FIXME: Handle printing better. Make function to print top border, section separator,
-        // bottom border, and then each of the sections header, column names, data rows, and
-        // footer.
         let builder = String::with_capacity(2000); // This should be enough
 
         let (left_char, right_char, builder) = self.print_the_title(table_width, builder)?;
