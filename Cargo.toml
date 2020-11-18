@@ -6,7 +6,7 @@ edition = "2018"
 publish = false
 
 [dependencies]
-bufkit-data = "0.17.0"
+bufkit-data = "0.17.1"
 chrono = "0.4.2"
 clap = { version = "2.32.0", features = ["wrap_help"]}
 crossbeam-channel = "0.5"
