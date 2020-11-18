@@ -1,4 +1,4 @@
-use bfkmd::{bail, TablePrinter};
+use bfkmd::{bail, AutoDownloadListDb, TablePrinter};
 use bufkit_data::{Archive, BufkitDataErr, Model, StateProv, StationNumber, StationSummary};
 use chrono::FixedOffset;
 use clap::ArgMatches;
@@ -73,8 +73,17 @@ fn sites_list(
     //
     // Filter based on auto download
     //
-    let auto_download = &|site: &StationSummary| -> bool { site.auto_download };
-    let no_auto_download = &|site: &StationSummary| -> bool { !site.auto_download };
+    let dl_db = AutoDownloadListDb::open_or_create(&arch.root())?;
+    let auto_download = &|site: &StationSummary| -> bool {
+        dl_db
+            .is_auto_downloaded(site.station_num)
+            .expect("Error with AutoDownloadListDb")
+    };
+    let no_auto_download = &|site: &StationSummary| -> bool {
+        !dl_db
+            .is_auto_downloaded(site.station_num)
+            .expect("Error with AutoDownloadListDb")
+    };
     let auto_download_pred: &dyn Fn(&StationSummary) -> bool =
         if sub_sub_args.is_present("auto-download") {
             auto_download
@@ -149,7 +158,11 @@ fn sites_list(
             .map(|val| val.to_string())
             .unwrap_or_else(|| blank.clone());
         let notes = site.notes.as_ref().unwrap_or(&blank);
-        let auto_dl = if site.auto_download { "Yes" } else { "No" };
+        let auto_dl = if dl_db.is_auto_downloaded(site.station_num)? {
+            "Yes"
+        } else {
+            "No"
+        };
         let models = site.models_as_string();
         let num_files = site.number_of_files;
         let row = vec![
@@ -192,27 +205,36 @@ fn sites_modify(
         .site(site)
         .ok_or_else(|| BufkitDataErr::InvalidSiteId(site.to_string()))?;
 
+    let mut update_in_archive_needed = false;
+
     if let Some(new_state) = sub_sub_args.value_of("state") {
         match StateProv::from_str(&new_state.to_uppercase()) {
-            Ok(new_state) => site.state = Some(new_state),
+            Ok(new_state) => {
+                site.state = Some(new_state);
+                update_in_archive_needed = true;
+            }
             Err(_) => println!("Unable to parse state/providence: {}", new_state),
         }
     }
 
     if let Some(dl) = sub_sub_args.value_of("auto-download") {
+        let dl_db = bfkmd::AutoDownloadListDb::open_or_create(root)?;
+
         match dl {
-            "Yes" | "yes" => site.auto_download = true,
-            "No" | "no" => site.auto_download = false,
+            "Yes" | "yes" => dl_db.add_site(site.station_num)?,
+            "No" | "no" => dl_db.remove_site(site.station_num)?,
             _ => unreachable!(),
         }
     }
 
     if let Some(new_name) = sub_sub_args.value_of("name") {
         site.name = Some(new_name.to_owned());
+        update_in_archive_needed = true;
     }
 
     if let Some(new_notes) = sub_sub_args.value_of("notes") {
-        site.notes = Some(new_notes.to_owned())
+        site.notes = Some(new_notes.to_owned());
+        update_in_archive_needed = true;
     }
 
     if let Some(new_offset) = sub_sub_args.value_of("utc-offset") {
@@ -223,10 +245,13 @@ fn sites_modify(
             } else {
                 site.time_zone = Some(FixedOffset::east(seconds));
             }
+            update_in_archive_needed = true;
         }
     }
 
-    arch.update_site(&site)?;
+    if update_in_archive_needed {
+        arch.update_site(&site)?;
+    }
     Ok(())
 }
 
@@ -297,7 +322,12 @@ fn sites_inventory(
                 last.format("%Y-%m-%d %H")
             ));
 
-        let dl = if site.auto_download { "" } else { " NOT" };
+        let dl_db = AutoDownloadListDb::open_or_create(&arch.root())?;
+        let dl = if dl_db.is_auto_downloaded(site.station_num)? {
+            ""
+        } else {
+            " NOT"
+        };
         tp = tp.with_footer(format!("This site is{} automatically downloaded.", dl));
 
         let mut cycles = vec![];

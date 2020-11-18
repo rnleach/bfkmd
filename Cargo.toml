@@ -1,12 +1,12 @@
 [package]
 name = "bfkmd"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Ryan <rnleach@users.noreply.github.com>"]
 edition = "2018"
 publish = false
 
 [dependencies]
-bufkit-data = "0.16"
+bufkit-data = "0.16.1"
 chrono = "0.4.2"
 clap = { version = "2.32.0", features = ["wrap_help"]}
 crossbeam-channel = "0.5"

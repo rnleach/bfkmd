@@ -1,6 +1,6 @@
 use super::{ReqInfo, StepResult, DEFAULT_DAYS_BACK, HOST_URL};
 use crate::missing_url::MissingUrlDb;
-use bfkmd::parse_date_string;
+use bfkmd::{parse_date_string, AutoDownloadListDb};
 use bufkit_data::{Archive, BufkitDataErr, Model, StationNumber};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use clap::ArgMatches;
@@ -147,7 +147,7 @@ fn build_download_list(
             .collect()
     } else {
         println!("Make download list of sites...");
-        list_of_auto_download_sites_for_model(arch)?
+        list_of_auto_download(arch)?
     };
     let duration = start_long_request.elapsed();
     println!("....done! with sites it took: {:?}", duration);
@@ -169,20 +169,25 @@ fn build_download_list(
     Ok(to_ret)
 }
 
-fn list_of_auto_download_sites_for_model(
+fn list_of_auto_download(
     arch: &Archive,
 ) -> Result<Vec<(String, Option<StationNumber>, Model)>, BufkitDataErr> {
-    Ok(arch
-        .auto_downloads()?
-        .into_iter()
-        .map(
-            |bufkit_data::DownloadInfo {
-                 id,
-                 station_num,
-                 model,
-             }| (id, Some(station_num), model),
-        )
-        .collect())
+    let dl_db = AutoDownloadListDb::open_or_create(&arch.root())?;
+    let mut dl_stations = dl_db.get_list()?;
+    dl_stations.sort_unstable();
+
+    let mut dl_id_stations: Vec<(String, Option<StationNumber>, Model)> = Vec::new();
+
+    for model in Model::iter() {
+        arch.sites_and_ids_for(model)?
+            .into_iter()
+            .filter(|(site, _id)| dl_stations.binary_search(&site.station_num).is_ok())
+            .for_each(|(site, id)| {
+                dl_id_stations.push((id, Some(site.station_num), model));
+            })
+    }
+
+    Ok(dl_id_stations)
 }
 
 fn invalid_combination(site: &str, model: Model, init_time: NaiveDateTime) -> bool {
