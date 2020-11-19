@@ -1,5 +1,5 @@
 use bfkmd::bail;
-use bufkit_data::{AddFileResult, Archive, Model};
+use bufkit_data::{Archive, Model};
 use clap::ArgMatches;
 use sounding_bufkit::BufkitFile;
 use std::{error::Error, path::PathBuf, str::FromStr};
@@ -30,12 +30,7 @@ pub fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error
     for file in files {
         let f = BufkitFile::load(&file)?;
 
-        match arch.add(&site_id.to_uppercase(), model, f.raw_text()) {
-            AddFileResult::Ok(_) | AddFileResult::New(_) | AddFileResult::IdMovedStation { .. } => {
-                Ok(())
-            }
-            AddFileResult::Error(err) => Err(err),
-        }?;
+        arch.add(&site_id.to_uppercase(), model, f.raw_text())?;
     }
 
     Ok(())

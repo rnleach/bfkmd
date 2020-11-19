@@ -203,7 +203,7 @@ fn sites_modify(
 
     let mut site = arch
         .site(site)
-        .ok_or_else(|| BufkitDataErr::InvalidSiteId(site.to_string()))?;
+        .ok_or_else(|| BufkitDataErr::GeneralError(format!("Invalid Site: {}", site)))?;
 
     let mut update_in_archive_needed = false;
 
@@ -283,7 +283,7 @@ fn sites_inventory(
 
     let site = arch
         .site(site)
-        .ok_or_else(|| BufkitDataErr::InvalidSiteId(site.to_string()))?;
+        .ok_or_else(|| BufkitDataErr::GeneralError(format!("Invalid site: {}", site)))?;
 
     let inv = match arch.inventory(site.station_num, model) {
         ok @ Ok(_) => ok,

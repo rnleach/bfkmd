@@ -1,5 +1,5 @@
 use super::{ReqInfo, StepResult};
-use bufkit_data::{AddFileResult, Archive, Model};
+use bufkit_data::{Archive, Model};
 use crossbeam_channel as channel;
 use std::{path::PathBuf, thread::spawn};
 
@@ -23,17 +23,8 @@ pub fn start_writer_thread(
             let next_step = match step_result {
                 StepResult::BufkitFileAsString(req_info, data) => {
                     match arch.add(&req_info.site_id, req_info.model, &data) {
-                        AddFileResult::Ok(_) | AddFileResult::New(_) => {
-                            StepResult::Success(req_info)
-                        }
-                        AddFileResult::Error(err) => {
-                            StepResult::ArchiveError(req_info, err.to_string())
-                        }
-                        AddFileResult::IdMovedStation { old, new } => StepResult::StationIdMoved {
-                            info: req_info,
-                            old,
-                            new,
-                        },
+                        Ok(_) => StepResult::Success(req_info),
+                        Err(err) => StepResult::ArchiveError(req_info, err.to_string()),
                     }
                 }
                 _ => step_result,
