@@ -98,7 +98,7 @@ fn save_file(
     data: &str,
 ) -> Result<(), Box<dyn Error>> {
     let fname: String = match (no_prefix_date, init_time) {
-        (true, Some(init_time)) => {
+        (false, Some(init_time)) => {
             let file_string = init_time.format("%Y%m%d%HZ").to_string();
 
             format!(
