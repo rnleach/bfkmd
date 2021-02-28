@@ -59,31 +59,17 @@ fn run() -> Result<(), Box<dyn Error>> {
         use crate::StepResult::*;
 
         match step_result {
-            URLNotFound(ReqInfo {
-                ref url, init_time, ..
-            }) => {
-                if init_time < too_old_to_be_missing {
-                    missing_urls.add_url(url).map_err(|err| err.to_string())?;
-                    println!("URL missing, will not try again: {}", url);
-                } else {
-                    println!("Try again later: {}", url)
-                }
-            }
-            ParseError(
-                ReqInfo {
-                    ref url, init_time, ..
-                },
-                ref msg,
-            ) => {
-                if init_time < too_old_to_be_missing {
-                    missing_urls.add_url(url).map_err(|err| err.to_string())?;
-                }
-                println!("Corrupt file at URL ({}): {}", msg, url)
+            URLNotFound(_) | ParseError(_, _) | OtherDownloadError(_, _) | ArchiveError(_, _) => {
+                let msg = handle_error_as_missing_data(
+                    &step_result,
+                    too_old_to_be_missing,
+                    &missing_urls,
+                )?;
+                println!("{}", msg);
             }
             OtherURLStatus(ReqInfo { url, .. }, code) => {
                 println!("  HTTP error ({}): {}.", code, url)
             }
-            OtherDownloadError(_, err) | ArchiveError(_, err) => println!("  {}", err),
             Success(req) => {
                 println!(
                     "Success for {:>4} {:^6} {}.",
@@ -96,6 +82,43 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+fn handle_error_as_missing_data(
+    res: &StepResult,
+    too_old_to_be_missing: chrono::NaiveDateTime,
+    missing_urls: &MissingUrlDb,
+) -> Result<String, Box<dyn Error>> {
+    use StepResult::*;
+
+    let (url, init_time, msg) = match res {
+        ArchiveError(ReqInfo { init_time, url, .. }, err) => {
+            (url, *init_time, format!("  {}", err))
+        }
+        OtherDownloadError(ReqInfo { init_time, url, .. }, err) => {
+            (url, *init_time, format!("  {}", err))
+        }
+        ParseError(ReqInfo { init_time, url, .. }, msg) => (
+            url,
+            *init_time,
+            format!("Corrupt file at URL ({}): {}", msg, url),
+        ),
+        URLNotFound(ReqInfo { init_time, url, .. }) => {
+            let msg = if *init_time < too_old_to_be_missing {
+                format!("URL missing, will not try again: {}", url)
+            } else {
+                format!("Try again later: {}", url)
+            };
+            (url, *init_time, msg)
+        }
+        _ => unreachable!(),
+    };
+
+    if init_time < too_old_to_be_missing {
+        missing_urls.add_url(url).map_err(|err| err.to_string())?;
+    }
+
+    Ok(msg)
 }
 
 fn parse_args() -> ArgMatches<'static> {
