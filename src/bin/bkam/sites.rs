@@ -297,7 +297,7 @@ fn sites_inventory(
         err @ Err(_) => err,
     }?;
 
-    let (first, last) = match (inv.iter().nth(0), inv.iter().last()) {
+    let (first, last) = match (inv.get(0), inv.iter().last()) {
         (Some(first), Some(last)) => (first, last),
         _ => unreachable!(),
     };

@@ -8,9 +8,9 @@ use crossbeam_channel as channel;
 use std::{error::Error, ops::Deref, path::PathBuf, str::FromStr, thread::spawn};
 use strum::IntoEnumIterator;
 
-pub fn start_generator_thread<'a>(
+pub fn start_generator_thread(
     root: PathBuf,
-    arg_matches: &'a ArgMatches,
+    arg_matches: &ArgMatches,
     generator_tx: channel::Sender<StepResult>,
 ) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(&root)?;

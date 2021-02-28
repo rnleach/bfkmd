@@ -322,7 +322,7 @@ impl TablePrinter {
 }
 
 /// Function to split the header/footers into lines
-fn wrapper<'a>(text: &'a str, table_width: usize) -> Vec<&'a str> {
+fn wrapper(text: &str, table_width: usize) -> Vec<&str> {
     let mut to_ret: Vec<&str> = vec![];
 
     let mut remaining = &text[..];
