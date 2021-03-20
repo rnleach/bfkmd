@@ -212,6 +212,11 @@ fn invalid_combination(site: &str, model: Model, init_time: NaiveDateTime) -> bo
     let expired_sites = match (site.deref(), model) {
         ("lrr", Model::GFS) => init_time >= NaiveDate::from_ymd(2018, 12, 5).and_hms(0, 0, 0),
         ("c17", Model::GFS) => init_time >= NaiveDate::from_ymd(2018, 12, 5).and_hms(0, 0, 0),
+        ("sta", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
+        ("xxpn", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
+        ("wev", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
+        ("xkza", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
+        ("mpi", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
         _ => false,
     };
 
