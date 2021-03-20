@@ -222,6 +222,7 @@ pub enum StepResult {
     OtherDownloadError(ReqInfo, String), // Any other error downloading, error converted to string.
     ParseError(ReqInfo, String),         // An error during parsing
     ArchiveError(ReqInfo, String),       // Error adding it to the archive
+    StationMovedError(ReqInfo),          // The station number wasn't what was expected.
     MissingUrlDbError(ReqInfo, String),  // Error dealing with the MissingUrlDb
     InitializationError(String),         // Error setting up threads.
 }

@@ -1,5 +1,5 @@
 use super::{ReqInfo, StepResult};
-use bufkit_data::{Archive, Model};
+use bufkit_data::{Archive, BufkitDataErr, Model};
 use crossbeam_channel as channel;
 use std::{path::PathBuf, thread::spawn};
 
@@ -22,8 +22,29 @@ pub fn start_writer_thread(
         for step_result in save_rx {
             let next_step = match step_result {
                 StepResult::BufkitFileAsString(req_info, data) => {
-                    match arch.add(&req_info.site_id, req_info.model, &data) {
+                    match arch.add(
+                        &req_info.site_id,
+                        req_info.site,
+                        Some(req_info.init_time),
+                        req_info.model,
+                        &data,
+                    ) {
                         Ok(_) => StepResult::Success(req_info),
+                        Err(BufkitDataErr::MismatchedStationNumbers { .. }) => {
+                            StepResult::StationMovedError(req_info)
+                        }
+                        //
+                        // FIXME: This should be an error, but really, it isn't because there
+                        // are known cases where the site id in the URL doesn't match the one
+                        // in the file.
+                        //
+                        Err(BufkitDataErr::MismatchedIDs { .. }) => StepResult::Success(req_info),
+                        Err(BufkitDataErr::MismatchedInitializationTimes { hint, parsed }) => {
+                            StepResult::ParseError(
+                                req_info,
+                                format!("requested {}, parsed {}", hint, parsed),
+                            )
+                        }
                         Err(err) => StepResult::ArchiveError(req_info, err.to_string()),
                     }
                 }

@@ -30,7 +30,7 @@ pub fn import(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error
     for file in files {
         let f = BufkitFile::load(&file)?;
 
-        arch.add(&site_id.to_uppercase(), model, f.raw_text())?;
+        arch.add(&site_id.to_uppercase(), None, None, model, f.raw_text())?;
     }
 
     Ok(())

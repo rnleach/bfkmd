@@ -75,8 +75,8 @@ pub fn start_generator_thread(
                 !invalid_combination(site_id, *model, *init_time)
             })
             // Filter out data already in the databse
-            .filter(|(_site_id, site, model, init_time)| {
-                !site
+            .filter(|(_site_id, stn_num, model, init_time)| {
+                !stn_num
                     .and_then(|s| arch.file_exists(s, *model, *init_time).ok())
                     .unwrap_or(false)
             })
