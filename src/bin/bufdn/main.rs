@@ -14,8 +14,8 @@ mod db_writer;
 mod download;
 mod generator;
 mod missing_url;
+mod sources;
 
-static HOST_URL: &str = "http://mtarchive.geol.iastate.edu/";
 const DEFAULT_DAYS_BACK: i64 = 2;
 
 fn main() {

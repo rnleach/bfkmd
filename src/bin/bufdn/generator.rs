@@ -1,11 +1,12 @@
-use super::{ReqInfo, StepResult, DEFAULT_DAYS_BACK, HOST_URL};
+use super::sources::{IowaState, Source};
+use super::{ReqInfo, StepResult, DEFAULT_DAYS_BACK};
 use crate::missing_url::MissingUrlDb;
 use bfkmd::{parse_date_string, AutoDownloadListDb};
 use bufkit_data::{Archive, BufkitDataErr, Model, StationNumber};
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
+use chrono::{Duration, NaiveDateTime, Utc};
 use clap::ArgMatches;
 use crossbeam_channel as channel;
-use std::{error::Error, ops::Deref, path::PathBuf, str::FromStr, thread::spawn};
+use std::{error::Error, path::PathBuf, str::FromStr, thread::spawn};
 use strum::IntoEnumIterator;
 
 pub fn start_generator_thread(
@@ -68,52 +69,29 @@ pub fn start_generator_thread(
             }
         };
 
+        let sources: &[&dyn Source] = &[&IowaState {}];
+
         download_list
             .into_iter()
-            // Filter out known bad combinations
-            .filter(|(site_id, _stn_num, model, init_time)| {
-                !invalid_combination(site_id, *model, *init_time)
-            })
             // Filter out data already in the databse
             .filter(|(_site_id, stn_num, model, init_time)| {
                 !stn_num
                     .and_then(|s| arch.file_exists(s, *model, *init_time).ok())
                     .unwrap_or(false)
             })
-            //
-            // FIX KNOWN ISSUES WITH MISMATCHES BETWEEN URL AND ID IN THE FILE. SUPER HACK
-            //
-            .map(|(site_id, site, model, init_time)| {
-                if site_id == "KLDN"
-                    && model != Model::GFS
-                    && init_time >= NaiveDate::from_ymd(2020, 5, 1).and_hms(0, 0, 0)
-                {
-                    ("KDLN".to_owned(), site, model, init_time)
-                } else {
-                    (site_id, site, model, init_time)
-                }
+            // Make a request
+            .filter_map(move |(site_id, site, model, init_time)| {
+                sources
+                    .iter()
+                    .filter_map(|src| src.build_req_info(site_id.clone(), site, model, init_time))
+                    .find(|ReqInfo { ref url, .. }| {
+                        !missing_urls.is_missing(url).unwrap_or(false)
+                    })
             })
-            // Add the url
-            .filter_map(|(site_id, site, model, init_time)| {
-                match build_url(&site_id, model, &init_time) {
-                    Ok(url) => Some((site_id, site, model, init_time, url)),
-                    Err(_) => None,
-                }
-            })
-            // Filter out known missing values
-            .filter(|(_, _, _, _, url)| !missing_urls.is_missing(url).unwrap_or(false))
             // Limit the number of downloads.
             .take(1_000)
             // Pass it off to another thread for downloading.
-            .map(move |(site_id, site, model, init_time, url)| {
-                StepResult::Request(ReqInfo {
-                    site_id,
-                    site,
-                    model,
-                    init_time,
-                    url,
-                })
-            })
+            .map(StepResult::Request)
             .for_each(move |request| {
                 if generator_tx.send(request).is_err() {
                     return;
@@ -188,101 +166,4 @@ fn list_of_auto_download(
     }
 
     Ok(dl_id_stations)
-}
-
-fn invalid_combination(site: &str, model: Model, init_time: NaiveDateTime) -> bool {
-    let site: String = site.to_lowercase();
-
-    let model_site_mismatch = match site.deref() {
-        "bam" | "c17" | "lrr" | "s06" | "ssy" | "xkza" | "xxpn" => {
-            model == Model::NAM || model == Model::NAM4KM
-        }
-        "bon" | "hmm" | "mrp" | "smb" | "win" => model == Model::GFS,
-        "wntr" => model == Model::GFS || model == Model::NAM4KM,
-        "kfca" => model == Model::NAM || model == Model::NAM4KM,
-        "paeg" | "pabt" | "pafa" | "pafm" | "pamc" | "pfyu" => model == Model::NAM4KM,
-        _ => false, // All other combinations are OK
-    };
-
-    let model_init_time_mismatch = match model {
-        Model::NAM4KM => init_time < NaiveDate::from_ymd(2013, 3, 25).and_hms(0, 0, 0),
-        _ => init_time < NaiveDate::from_ymd(2011, 1, 1).and_hms(0, 0, 0),
-    };
-
-    let expired_sites = match (site.deref(), model) {
-        ("lrr", Model::GFS) => init_time >= NaiveDate::from_ymd(2018, 12, 5).and_hms(0, 0, 0),
-        ("c17", Model::GFS) => init_time >= NaiveDate::from_ymd(2018, 12, 5).and_hms(0, 0, 0),
-        ("sta", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
-        ("xxpn", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
-        ("wev", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
-        ("xkza", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
-        ("mpi", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
-
-        // For the site/model combos below there is sparse data further back, but it's very sparse.
-        ("pafm", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("pfyu", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("pabt", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("wev", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("wntr", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("smb", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("hmm", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("sta", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("mpi", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("wja", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("mrp", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("pamc", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("pafa", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("paeg", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("cype", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("cyyc", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("cwlb", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-        ("ssy", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-        ("cwlb", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-        ("bam", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-        ("cyyc", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-        ("paeg", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-        ("cype", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-        ("pfyu", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-        ("pafa", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-        ("pamc", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-        ("pabt", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-        ("wja", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-        ("pafm", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-
-        _ => false,
-    };
-
-    model_site_mismatch || model_init_time_mismatch || expired_sites
-}
-
-fn build_url(
-    site: &str,
-    model: Model,
-    init_time: &NaiveDateTime,
-) -> Result<String, Box<dyn Error>> {
-    let site = site.to_lowercase();
-
-    let year = init_time.year();
-    let month = init_time.month();
-    let day = init_time.day();
-    let hour = init_time.hour();
-    let remote_model = match (model, hour) {
-        (Model::GFS, _) => "gfs3",
-        (Model::NAM, 6) | (Model::NAM, 18) => "namm",
-        (Model::NAM, _) => "nam",
-        (Model::NAM4KM, _) => "nam4km",
-    };
-
-    let remote_file_name = remote_model.to_string() + "_" + &site + ".buf";
-
-    Ok(format!(
-        "{}{}/{:02}/{:02}/bufkit/{:02}/{}/{}",
-        HOST_URL,
-        year,
-        month,
-        day,
-        hour,
-        model.to_string().to_lowercase(),
-        remote_file_name
-    ))
 }
