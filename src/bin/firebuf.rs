@@ -581,7 +581,7 @@ fn save_stats(
 
     let init_time_str = &vts[0].format("_%Y%m%d%H").to_string();
 
-    let file_name = String::new() + &site_id + "_" + model.as_static_str() + init_time_str + ".csv";
+    let file_name = String::new() + site_id + "_" + model.as_static_str() + init_time_str + ".csv";
     let path = save_dir.join(&file_name);
     let file = File::create(path)?;
     let mut wtr = csv::Writer::from_writer(file);
