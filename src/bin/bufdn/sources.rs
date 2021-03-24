@@ -79,9 +79,13 @@ impl IowaState {
         model: Model,
         init_time: NaiveDateTime,
     ) -> String {
-        if site_id == "KLDN"
-            && model != Model::GFS
+        if site_id == "KLDN" && model != Model::GFS
             && init_time >= NaiveDate::from_ymd(2020, 5, 1).and_hms(0, 0, 0)
+        {
+            "KDLN".to_owned()
+        } else if site_id == "KLDN"
+            && model == Model::GFS
+            && init_time >= NaiveDate::from_ymd(2021, 3, 22).and_hms(18, 0, 0)
         {
             "KDLN".to_owned()
         } else {
@@ -116,6 +120,7 @@ impl IowaState {
             ("wev", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
             ("xkza", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
             ("mpi", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
+            ("kmpi", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
 
             // For the site/model combos below there is sparse data further back, but it's very sparse.
             ("pafm", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
