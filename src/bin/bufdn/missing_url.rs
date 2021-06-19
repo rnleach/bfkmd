@@ -1,5 +1,5 @@
 use bufkit_data::BufkitDataErr;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags};
 use std::path::Path;
 
 pub struct MissingUrlDb {
@@ -19,7 +19,7 @@ impl MissingUrlDb {
             "CREATE TABLE IF NOT EXISTS missing (
                 url TEXT PRIMARY KEY
             )",
-            NO_PARAMS,
+            [],
         )?;
 
         Ok(MissingUrlDb { db_conn: db404 })

@@ -1,5 +1,5 @@
 use bufkit_data::{BufkitDataErr, StationNumber};
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags};
 use std::path::Path;
 
 pub struct AutoDownloadListDb {
@@ -19,7 +19,7 @@ impl AutoDownloadListDb {
             "CREATE TABLE IF NOT EXISTS download (
                 station_num INT PRIMARY KEY
             )",
-            NO_PARAMS,
+            [],
         )?;
 
         Ok(AutoDownloadListDb {
@@ -37,7 +37,7 @@ impl AutoDownloadListDb {
         };
 
         let results: Result<Vec<StationNumber>, BufkitDataErr> = stmt
-            .query_and_then(rusqlite::NO_PARAMS, parse_row)?
+            .query_and_then([], parse_row)?
             .map(|res| res.map_err(BufkitDataErr::Database))
             .collect();
 
