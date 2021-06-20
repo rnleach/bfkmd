@@ -4,6 +4,7 @@ use bufkit_data::{Archive, BufkitDataErr, Model, SiteInfo};
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike};
 use clap::{crate_version, App, Arg};
 use dirs::home_dir;
+use metfor::Quantity;
 use sounding_analysis::Sounding;
 use sounding_bufkit::BufkitData;
 use std::{collections::HashMap, error::Error, fs::File, path::PathBuf, str::FromStr};
@@ -324,6 +325,7 @@ fn calculate_stats(
 
             let stat = match graph_stat {
                 Hdw => sounding_analysis::hot_dry_windy(sounding),
+                Pft => sounding_analysis::pft(sounding, 15.0).map(|val| val.unpack()),
                 HainesLow => sounding_analysis::haines_low(sounding).map(f64::from),
                 HainesMid => sounding_analysis::haines_mid(sounding).map(f64::from),
                 HainesHigh => sounding_analysis::haines_high(sounding).map(f64::from),
@@ -358,9 +360,18 @@ fn calculate_stats(
                 }
             };
 
+            let min = |old_val: (f64, u32), new_val: (f64, u32)| -> (f64, u32) {
+                if (old_val.0.is_nan() && !new_val.0.is_nan()) || (new_val.0 < old_val.0) {
+                    new_val
+                } else {
+                    old_val
+                }
+            };
+
             let stat_func: &dyn Fn(&Sounding) -> Result<f64, _> = match table_stat {
                 Hdw => &sounding_analysis::hot_dry_windy,
                 MaxHdw => &sounding_analysis::hot_dry_windy,
+                MinPft => &|snd| sounding_analysis::pft(snd, 15.0).map(|pft| pft.unpack()),
                 HainesLow => &|snd| sounding_analysis::haines_low(snd).map(f64::from),
                 MaxHainesLow => &|snd| sounding_analysis::haines_low(snd).map(f64::from),
                 HainesMid => &|snd| sounding_analysis::haines_mid(snd).map(f64::from),
@@ -379,6 +390,7 @@ fn calculate_stats(
             let selector: &dyn Fn((f64, u32), (f64, u32)) -> (f64, u32) = match table_stat {
                 Hdw => &zero_z,
                 MaxHdw => &max,
+                MinPft => &min, 
                 HainesLow => &zero_z,
                 MaxHainesLow => &max,
                 HainesMid => &zero_z,
@@ -632,6 +644,8 @@ struct CmdLineArgs {
 enum GraphStatArg {
     #[strum(serialize = "HDW")]
     Hdw,
+    #[strum(serialize = "PFT")]
+    Pft,
     HainesLow,
     HainesMid,
     HainesHigh,
@@ -668,6 +682,8 @@ enum TableStatArg {
     MaxHainesHigh,
     AutoHaines,
     MaxAutoHaines,
+    #[strum(serialize = "MinPFT")]
+    MinPft,
     None,
 }
 
