@@ -8,8 +8,8 @@ use metfor::Quantity;
 use sounding_analysis::Sounding;
 use sounding_bufkit::BufkitData;
 use std::{collections::HashMap, error::Error, fs::File, path::PathBuf, str::FromStr};
-use strum::{AsStaticRef, IntoEnumIterator};
-use strum_macros::{AsStaticStr, EnumIter, EnumString};
+use strum::IntoEnumIterator;
+use strum_macros::{EnumIter, EnumString, IntoStaticStr};
 use textplots::{Chart, Plot, Shape};
 
 fn main() {
@@ -122,7 +122,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .takes_value(true)
                 .possible_values(
                     &TableStatArg::iter()
-                        .map(|val| val.as_static())
+                        .map(|val| val.into())
                         .collect::<Vec<&str>>(),
                 )
                 .help("Which statistics to show in the table.")
@@ -139,7 +139,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .takes_value(true)
                 .possible_values(
                     &GraphStatArg::iter()
-                        .map(|val| val.as_static())
+                        .map(|val| val.into())
                         .collect::<Vec<&str>>(),
                 )
                 .help("Which statistics to plot make a graph for.")
@@ -390,7 +390,7 @@ fn calculate_stats(
             let selector: &dyn Fn((f64, u32), (f64, u32)) -> (f64, u32) = match table_stat {
                 Hdw => &zero_z,
                 MaxHdw => &max,
-                MinPft => &min, 
+                MinPft => &min,
                 HainesLow => &zero_z,
                 MaxHainesLow => &max,
                 HainesMid => &zero_z,
@@ -505,7 +505,7 @@ fn print_stats(
                     .collect(),
             };
 
-            tp = tp.with_column(table_stat.as_static(), &daily_stat_values);
+            tp = tp.with_column::<&str, String>(table_stat.into(), &daily_stat_values);
         }
         tp.print_with_min_width(78)?;
     }
@@ -562,7 +562,7 @@ fn print_stats(
             format!(
                 "{} {} for {} ({})",
                 model,
-                g_stat.as_static(),
+                Into::<&str>::into(g_stat),
                 site.description(),
                 site_id
             )
@@ -598,7 +598,7 @@ fn save_stats(
     let file = File::create(path)?;
     let mut wtr = csv::Writer::from_writer(file);
 
-    let mut stat_key_strings: Vec<&str> = g_stats.iter().map(AsStaticRef::as_static).collect();
+    let mut stat_key_strings: Vec<&str> = g_stats.iter().map(Into::into).collect();
     stat_key_strings.insert(0, "Time");
 
     wtr.write_record(&stat_key_strings)?;
@@ -640,7 +640,7 @@ struct CmdLineArgs {
     save_dir: Option<PathBuf>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, EnumString, AsStaticStr, EnumIter, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, EnumString, IntoStaticStr, EnumIter, Hash)]
 enum GraphStatArg {
     #[strum(serialize = "HDW")]
     Hdw,
@@ -668,7 +668,7 @@ impl GraphStatArg {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, EnumString, AsStaticStr, EnumIter, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, EnumString, IntoStaticStr, EnumIter, Hash)]
 enum TableStatArg {
     #[strum(serialize = "HDW")]
     Hdw,
