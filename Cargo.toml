@@ -21,7 +21,7 @@ sounding-analysis = "^0.17.1"
 sounding-bufkit = "^0.16"
 strum = "^0.24"
 strum_macros = "^0.24"
-textplots = "^0.6.0"
+textplots = "^0.8.0"
 threadpool = "^1.7.1"
 unicode-width = "^0.1.5"
 
