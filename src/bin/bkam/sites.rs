@@ -6,9 +6,9 @@ use std::{error::Error, path::PathBuf, str::FromStr};
 
 pub fn sites(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     match sub_args.subcommand() {
-        ("list", Some(sub_sub_args)) => sites_list(root, sub_args, &sub_sub_args),
-        ("modify", Some(sub_sub_args)) => sites_modify(root, sub_args, &sub_sub_args),
-        ("inv", Some(sub_sub_args)) => sites_inventory(root, sub_args, &sub_sub_args),
+        Some(("list", sub_sub_args)) => sites_list(root, sub_args, &sub_sub_args),
+        Some(("modify", sub_sub_args)) => sites_modify(root, sub_args, &sub_sub_args),
+        Some(("inv", sub_sub_args)) => sites_inventory(root, sub_args, &sub_sub_args),
         _ => unreachable!(),
     }
 }

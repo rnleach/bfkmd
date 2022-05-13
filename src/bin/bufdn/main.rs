@@ -4,7 +4,7 @@
 use crate::missing_url::MissingUrlDb;
 use bufkit_data::{Model, StationNumber};
 use chrono::{Duration, NaiveDateTime, Utc};
-use clap::{crate_version, App, Arg, ArgMatches};
+use clap::{crate_version, Arg, ArgMatches, Command};
 use crossbeam_channel as channel;
 use dirs::home_dir;
 use reqwest::StatusCode;
@@ -121,15 +121,15 @@ fn handle_error_as_missing_data(
     Ok(msg)
 }
 
-fn parse_args() -> ArgMatches<'static> {
-    App::new("bufdn")
+fn parse_args() -> ArgMatches {
+    Command::new("bufdn")
         .author("Ryan <rnleach@users.noreply.github.com>")
         .version(crate_version!())
         .about("Download data into your archive.")
         .arg(
-            Arg::with_name("sites")
-                .multiple(true)
-                .short("s")
+            Arg::new("sites")
+                .multiple_values(true)
+                .short('s')
                 .long("sites")
                 .takes_value(true)
                 .help("Site identifiers (e.g. kord, katl, smn).")
@@ -142,9 +142,9 @@ fn parse_args() -> ArgMatches<'static> {
                 )),
         )
         .arg(
-            Arg::with_name("models")
-                .multiple(true)
-                .short("m")
+            Arg::new("models")
+                .multiple_values(true)
+                .short('m')
                 .long("models")
                 .takes_value(true)
                 .help("Allowable models for this operation/program.")
@@ -154,8 +154,8 @@ fn parse_args() -> ArgMatches<'static> {
                 )),
         )
         .arg(
-            Arg::with_name("days-back")
-                .short("d")
+            Arg::new("days-back")
+                .short('d')
                 .long("days-back")
                 .takes_value(true)
                 .conflicts_with_all(&["start", "end"])
@@ -165,7 +165,7 @@ fn parse_args() -> ArgMatches<'static> {
                 )),
         )
         .arg(
-            Arg::with_name("start")
+            Arg::new("start")
                 .long("start")
                 .takes_value(true)
                 .help("The starting model inititialization time. YYYY-MM-DD-HH")
@@ -176,7 +176,7 @@ fn parse_args() -> ArgMatches<'static> {
                 )),
         )
         .arg(
-            Arg::with_name("end")
+            Arg::new("end")
                 .long("end")
                 .takes_value(true)
                 .requires("start")
@@ -187,8 +187,8 @@ fn parse_args() -> ArgMatches<'static> {
                 )),
         )
         .arg(
-            Arg::with_name("root")
-                .short("r")
+            Arg::new("root")
+                .short('r')
                 .long("root")
                 .takes_value(true)
                 .help("Set the root of the archive.")

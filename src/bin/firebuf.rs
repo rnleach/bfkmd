@@ -2,7 +2,7 @@
 use bfkmd::{bail, parse_date_string, TablePrinter};
 use bufkit_data::{Archive, BufkitDataErr, Model, SiteInfo};
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike};
-use clap::{crate_version, App, Arg};
+use clap::{crate_version, Arg, Command};
 use dirs::home_dir;
 use metfor::Quantity;
 use sounding_analysis::Sounding;
@@ -83,28 +83,28 @@ fn run() -> Result<(), Box<dyn Error>> {
 }
 
 fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
-    let app = App::new("firebuf")
+    let app = Command::new("firebuf")
         .author("Ryan <rnleach@users.noreply.github.com>")
         .version(crate_version!())
         .about("Fire weather analysis & summary.")
         .arg(
-            Arg::with_name("sites")
-                .multiple(true)
-                .short("s")
+            Arg::new("sites")
+                .multiple_values(true)
+                .short('s')
                 .long("sites")
                 .takes_value(true)
                 .required(false)
                 .help("Site identifiers (e.g. kord, katl, smn)."),
         )
         .arg(
-            Arg::with_name("models")
-                .multiple(true)
-                .short("m")
+            Arg::new("models")
+                .multiple_values(true)
+                .short('m')
                 .long("models")
                 .takes_value(true)
                 .required(false)
                 .possible_values(
-                    &Model::iter()
+                    Model::iter()
                         .map(|val| val.as_static_str())
                         .collect::<Vec<&str>>(),
                 )
@@ -115,13 +115,13 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 )),
         )
         .arg(
-            Arg::with_name("table-stats")
-                .multiple(true)
-                .short("t")
+            Arg::new("table-stats")
+                .multiple_values(true)
+                .short('t')
                 .long("table-stats")
                 .takes_value(true)
                 .possible_values(
-                    &TableStatArg::iter()
+                    TableStatArg::iter()
                         .map(|val| val.into())
                         .collect::<Vec<&str>>(),
                 )
@@ -132,13 +132,13 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 )),
         )
         .arg(
-            Arg::with_name("graph-stats")
-                .multiple(true)
-                .short("g")
+            Arg::new("graph-stats")
+                .multiple_values(true)
+                .short('g')
                 .long("graph-stats")
                 .takes_value(true)
                 .possible_values(
-                    &GraphStatArg::iter()
+                    GraphStatArg::iter()
                         .map(|val| val.into())
                         .collect::<Vec<&str>>(),
                 )
@@ -150,9 +150,9 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 )),
         )
         .arg(
-            Arg::with_name("init-time")
+            Arg::new("init-time")
                 .long("init-time")
-                .short("i")
+                .short('i')
                 .takes_value(true)
                 .help("The model inititialization time. YYYY-MM-DD-HH")
                 .long_help(concat!(
@@ -164,7 +164,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .conflicts_with("end_time"),
         )
         .arg(
-            Arg::with_name("save-dir")
+            Arg::new("save-dir")
                 .long("save-dir")
                 .takes_value(true)
                 .help("Directory to save .csv files to.")
@@ -176,17 +176,17 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 )),
         )
         .arg(
-            Arg::with_name("print")
+            Arg::new("print")
                 .long("print")
-                .short("p")
+                .short('p')
                 .possible_values(&["Y", "N", "y", "n"])
                 .default_value("y")
                 .takes_value(true)
                 .help("Print the results to the terminal."),
         )
         .arg(
-            Arg::with_name("root")
-                .short("r")
+            Arg::new("root")
+                .short('r')
                 .long("root")
                 .takes_value(true)
                 .help("Set the root of the archive.")

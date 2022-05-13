@@ -1,5 +1,5 @@
 //! BufKit Archive Manager
-use clap::{crate_version, App, Arg, SubCommand};
+use clap::{crate_version, Arg, Command};
 use dirs::home_dir;
 use std::{error::Error, path::PathBuf};
 
@@ -27,13 +27,13 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let app = App::new("bkam")
+    let app = Command::new("bkam")
         .author("Ryan <rnleach@users.noreply.github.com>")
         .version(crate_version!())
         .about("Manage a Bufkit file archive.")
         .arg(
-            Arg::with_name("root")
-                .short("r")
+            Arg::new("root")
+                .short('r')
                 .long("root")
                 .takes_value(true)
                 .help("Set the root of the archive.")
@@ -42,101 +42,101 @@ fn run() -> Result<(), Box<dyn Error>> {
                 ).conflicts_with("create")
                 .global(true),
         ).subcommand(
-            SubCommand::with_name("create")
+            Command::new("create")
                 .about("Create a new archive.")
                 .arg(
-                    Arg::with_name("force")
+                    Arg::new("force")
                         .long("force")
                         .help("Overwrite any existing archive at `root`."),
                 ).arg(
-                    Arg::with_name("archive_root")
+                    Arg::new("archive_root")
                         .index(1)
                         .help("The path to create this archive at."),
                 ).after_help("The -r, --root option is ignored with this command."),
         ).subcommand(
-            SubCommand::with_name("sites")
+            Command::new("sites")
                 .about("View and manipulate site data.")
                 .subcommand(
-                    SubCommand::with_name("list")
+                    Command::new("list")
                         .about("List sites in the data base.")
                         .arg(
-                            Arg::with_name("missing-data")
-                                .short("m")
+                            Arg::new("missing-data")
+                                .short('m')
                                 .long("missing-data")
                                 .help("Sites with any missing info."),
                         ).arg(
-                            Arg::with_name("missing-state")
+                            Arg::new("missing-state")
                                 .long("missing-state")
                                 .help("Only sites missing state/providence."),
                         ).arg(
-                            Arg::with_name("state")
+                            Arg::new("state")
                                 .long("state")
                                 .help("Only sites in the given state.")
                                 .takes_value(true),
                         ).arg(
-                            Arg::with_name("auto-download")
+                            Arg::new("auto-download")
                                 .long("auto-download")
-                                .short("a")
+                                .short('a')
                                 .help(
                                     "Only list sites that are automatically downloaded by bufdn.",
                                 ),
                         ).arg(
-                            Arg::with_name("no-auto-download")
+                            Arg::new("no-auto-download")
                                 .long("no-auto-download")
-                                .short("n")
+                                .short('n')
                                 .help(
                                     "Only list sites that are automatically downloaded by bufdn.",
                                 ),
                         ),
                 ).subcommand(
-                    SubCommand::with_name("modify")
+                    Command::new("modify")
                         .about("Modify the entry for a site.")
                         .arg(
-                            Arg::with_name("stn")
+                            Arg::new("stn")
                                 .index(1)
                                 .required(true)
                                 .takes_value(true)
                                 .help("The station number or identifier of the site to modify."),
                         ).arg(
-                            Arg::with_name("state")
+                            Arg::new("state")
                                 .long("state")
                                 .takes_value(true)
                                 .help("Set the state field to this value."),
                         ).arg(
-                            Arg::with_name("name")
+                            Arg::new("name")
                                 .long("name")
                                 .takes_value(true)
                                 .help("Set the name field to this value."),
                         ).arg(
-                            Arg::with_name("notes")
+                            Arg::new("notes")
                                 .long("notes")
                                 .takes_value(true)
                                 .help("Set the name field to this value."),
                         ).arg(
-                            Arg::with_name("auto-download")
+                            Arg::new("auto-download")
                                 .long("auto-download")
                                 .help("Set whether or not to automatically download this site.")
                                 .possible_values(&["Yes", "yes", "no", "No"])
                                 .takes_value(true),
                         ).arg(
-                            Arg::with_name("utc-offset")
+                            Arg::new("utc-offset")
                                 .long("utc-offset")
                                 .help("Set the UTC offset in hours. e.g. '--utc-offset -7' for MST.")
                                 .require_equals(true)
                                 .takes_value(true),
                         ),
                 ).subcommand(
-                    SubCommand::with_name("inv")
+                    Command::new("inv")
                         .about("Get the inventory of soundings for a site.")
                         .arg(
-                            Arg::with_name("stn")
+                            Arg::new("stn")
                                 .index(1)
                                 .required(true)
                                 .takes_value(true)
                                 .help("The station number or identifier of the site to get the inventory for."),
                         )
                         .arg(
-                            Arg::with_name("model")
+                            Arg::new("model")
                                 .index(2)
                                 .required(true)
                                 .takes_value(true)
@@ -144,10 +144,10 @@ fn run() -> Result<(), Box<dyn Error>> {
                         ),
                 ),
         ).subcommand(
-            SubCommand::with_name("export")
+            Command::new("export")
                 .about("Export a sounding from the database")
                 .arg(
-                    Arg::with_name("start")
+                    Arg::new("start")
                         .long("start")
                         .takes_value(true)
                         .help("The starting model inititialization time. YYYY-MM-DD-HH")
@@ -158,7 +158,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                             " archive."
                         )),
                 ).arg(
-                    Arg::with_name("end")
+                    Arg::new("end")
                         .long("end")
                         .takes_value(true)
                         .requires("start")
@@ -168,71 +168,71 @@ fn run() -> Result<(), Box<dyn Error>> {
                             " Format is YYYY-MM-DD-HH."
                         )),
                 ).arg(
-                    Arg::with_name("no-prefix-date")
+                    Arg::new("no-prefix-date")
                         .long("no-prefix-date")
                         .takes_value(false)
                         .help("Do not prefix the date in YYYYMMDDHHZ format to the file name.")
                 ).arg(
-                    Arg::with_name("site")
+                    Arg::new("site")
                         .index(1)
                         .required(true)
                         .help("The site to export data for."),
                 ).arg(
-                    Arg::with_name("model")
+                    Arg::new("model")
                         .index(2)
                         .required(true)
                         .help("The model to export data for, e.g. gfs, GFS, NAM4KM, nam."),
                 ).arg(
-                    Arg::with_name("target")
+                    Arg::new("target")
                         .index(3)
                         .required(true)
                         .help("Target directory to save the export file into."),
                 ),
         ).subcommand(
-            SubCommand::with_name("import")
+            Command::new("import")
                 .about("Import a text file into the database.")
                 .arg(
-                    Arg::with_name("site")
+                    Arg::new("site")
                         .index(1)
                         .required(true)
                         .help("The site to export data for."),
                 ).arg(
-                    Arg::with_name("model")
+                    Arg::new("model")
                         .index(2)
                         .required(true)
                         .help("The model to export data for, e.g. gfs, GFS, NAM4KM, nam."),
                 ).arg(
-                    Arg::with_name("file")
+                    Arg::new("file")
                         .index(3)
                         .required(true)
-                        .multiple(true)
+                        .multiple_values(true)
                         .help("Source file to import."),
                 ),
         ).subcommand(
-            SubCommand::with_name("purge")
+            Command::new("purge")
                 .about("Delete some data from the archive.")
                 .arg(
-                    Arg::with_name("sites")
-                        .short("s")
+                    Arg::new("sites")
+                        .short('s')
                         .long("sites")
                         .takes_value(true)
-                        .multiple(true)
+                        .multiple_values(true)
                         .help("The site(s) to purge data for.")
                         .long_help(concat!(
                             "Purge data for these sites. This can be combined  with 'model' and",
                             " 'before' or 'after' arguments to narrow the specification.")),
                 ).arg(
-                    Arg::with_name("models")
-                        .short("m")
+                    Arg::new("models")
+                        .short('m')
                         .long("models")
                         .takes_value(true)
-                        .multiple(true)
+                        .multiple_values(true)
                         .help("The model(s) to purge data for, e.g. gfs, GFS, NAM4KM, nam.")
                         .long_help(concat!(
                             "Purge data for these models only. This can be combined with 'site' and",
                             " 'before' or 'after' arguments to narrow the specification.")),
                 ).arg(
-                    Arg::with_name("before")
+                    Arg::new("before")
                         .long("before")
                         .takes_value(true)
                         .help("Purge data before this time. YYYY-MM-DD-HH")
@@ -241,7 +241,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                             " specified, then data for all times is purged. This can be combined",
                             " with 'model' and 'site' arguments.")),
                 ).arg(
-                    Arg::with_name("after")
+                    Arg::new("after")
                         .long("after")
                         .takes_value(true)
                         .conflicts_with("before")
@@ -252,53 +252,53 @@ fn run() -> Result<(), Box<dyn Error>> {
                             " with 'model' and 'site' arguments.")),
                 )
         ).subcommand(
-            SubCommand::with_name("copy")
+            Command::new("copy")
                 .about("Copy some of the archive to a new archive.")
                 .arg(
-                    Arg::with_name("sites")
-                        .short("s")
+                    Arg::new("sites")
+                        .short('s')
                         .long("sites")
                         .required(true)
                         .takes_value(true)
-                        .multiple(true)
+                        .multiple_values(true)
                         .help("The site(s) to copy.")
                         .long_help(concat!(
                             "Copy data for these sites. This must be combined  with 'model' and",
                             " 'before' or 'after' arguments to narrow the specification.")),
                 ).arg(
-                    Arg::with_name("models")
-                        .short("m")
+                    Arg::new("models")
+                        .short('m')
                         .long("models")
                         .takes_value(true)
                         .required(true)
-                        .multiple(true)
+                        .multiple_values(true)
                         .help("The model(s) to copy data for, e.g. gfs, GFS, NAM4KM, nam.")
                         .long_help(concat!(
                             "Copy data for these models only. This must be combined with 'site' and",
                             " 'before' or 'after' arguments to narrow the specification.")),
                 ).arg(
-                    Arg::with_name("start")
+                    Arg::new("start")
                         .long("start")
                         .takes_value(true)
                         .help("Copy data after (and including) this time. YYYY-MM-DD-HH")
                         .long_help("Copy all data after (and including) this date.")
                 ).arg(
-                    Arg::with_name("end")
+                    Arg::new("end")
                         .long("end")
                         .takes_value(true)
                         .help("Copy data up to and including this time. YYYY-MM-DD-HH")
                         .long_help("Copy all data up to (and including) this date."),
                 ).arg(
-                    Arg::with_name("dest")
+                    Arg::new("dest")
                         .long("destination")
-                        .short("d")
+                        .short('d')
                         .index(1)
                         .required(true)
                         .takes_value(true)
                         .help("Destination directory of copy.")
                 )
         ).subcommand(
-            SubCommand::with_name("fix")
+            Command::new("fix")
                 .about("Find and fix inconsistencies in the archive.")
         );
 
@@ -311,13 +311,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         .expect("Invalid root.");
 
     match matches.subcommand() {
-        ("create", Some(sub_args)) => create::create(root, sub_args)?,
-        ("sites", Some(sub_args)) => sites::sites(root, sub_args)?,
-        ("export", Some(sub_args)) => export::export(root, sub_args)?,
-        ("import", Some(sub_args)) => import::import(root, sub_args)?,
-        ("purge", Some(sub_args)) => purge::purge(root, sub_args)?,
-        ("fix", Some(sub_args)) => fix::fix(root, sub_args)?,
-        ("copy", Some(sub_args)) => copy::copy(root, sub_args)?,
+        Some(("create", sub_args)) => create::create(root, sub_args)?,
+        Some(("sites", sub_args)) => sites::sites(root, sub_args)?,
+        Some(("export", sub_args)) => export::export(root, sub_args)?,
+        Some(("import", sub_args)) => import::import(root, sub_args)?,
+        Some(("purge", sub_args)) => purge::purge(root, sub_args)?,
+        Some(("fix", sub_args)) => fix::fix(root, sub_args)?,
+        Some(("copy", sub_args)) => copy::copy(root, sub_args)?,
         _ => unreachable!(),
     }
 
