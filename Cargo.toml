@@ -6,21 +6,21 @@ edition = "2018"
 publish = false
 
 [dependencies]
-bufkit-data = "^0.22.1"
+bufkit-data = "^0.23.0"
 chrono = "^0.4.2"
 clap = { version = "^3.1.0", features = ["wrap_help", "cargo"]}
 crossbeam-channel = "^0.5"
 csv = "^1.0.2"
-dirs = "^4.0"
-itertools = "^0.10"
+dirs = "^5.0"
+itertools = "^0.13"
 metfor = "^0.9.0"
 pbr = "^1.0.1"
-reqwest = { version = "^0.11.0", features = ["blocking"] }
-rusqlite = { version = "^0.28", features = ["bundled", "chrono"], default-features = false }
+reqwest = { version = "^0.12.0", features = ["blocking"] }
+rusqlite = { version = "^0.31", features = ["bundled", "chrono"], default-features = false }
 sounding-analysis = "^0.17.1"
 sounding-bufkit = "^0.16"
-strum = "^0.24"
-strum_macros = "^0.24"
+strum = "^0.26"
+strum_macros = "^0.26"
 textplots = "^0.8.0"
 threadpool = "^1.7.1"
 unicode-width = "^0.1.5"
