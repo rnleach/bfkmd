@@ -241,9 +241,9 @@ fn sites_modify(
         if let Ok(new_offset) = new_offset.parse::<i32>() {
             let seconds = new_offset * 3600;
             if seconds < 0 {
-                site.time_zone = Some(FixedOffset::west(seconds.abs()));
+                site.time_zone = FixedOffset::west_opt(seconds.abs());
             } else {
-                site.time_zone = Some(FixedOffset::east(seconds));
+                site.time_zone = FixedOffset::east_opt(seconds);
             }
             update_in_archive_needed = true;
         }

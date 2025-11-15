@@ -33,7 +33,7 @@ pub fn purge(root: &PathBuf, sub_args: &ArgMatches) -> Result<(), Box<dyn Error>
     let after = sub_args
         .value_of("after")
         .map(|after_str| parse_date_string(after_str))
-        .unwrap_or_else(|| NaiveDate::from_ymd(1900, 1, 1).and_hms(0, 0, 0));
+        .unwrap_or_else(|| NaiveDate::from_ymd_opt(1900, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap());
 
     let before = sub_args
         .value_of("before")

@@ -81,12 +81,12 @@ impl IowaState {
     ) -> String {
         if site_id == "KLDN"
             && model != Model::GFS
-            && init_time >= NaiveDate::from_ymd(2020, 5, 1).and_hms(0, 0, 0)
+            && init_time >= NaiveDate::from_ymd_opt(2020, 5, 1).unwrap().and_hms_opt(0, 0, 0).unwrap()
         {
             "KDLN".to_owned()
         } else if site_id == "KLDN"
             && model == Model::GFS
-            && init_time >= NaiveDate::from_ymd(2021, 3, 22).and_hms(18, 0, 0)
+            && init_time >= NaiveDate::from_ymd_opt(2021, 3, 22).unwrap().and_hms_opt(18, 0, 0).unwrap()
         {
             "KDLN".to_owned()
         } else {
@@ -109,53 +109,53 @@ impl IowaState {
         };
 
         let model_init_time_mismatch = match model {
-            Model::NAM4KM => init_time < NaiveDate::from_ymd(2013, 3, 25).and_hms(0, 0, 0),
-            _ => init_time < NaiveDate::from_ymd(2011, 1, 1).and_hms(0, 0, 0),
+            Model::NAM4KM => init_time < NaiveDate::from_ymd_opt(2013, 3, 25).unwrap().and_hms_opt(0, 0, 0).unwrap(),
+            _ => init_time < NaiveDate::from_ymd_opt(2011, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap(),
         };
 
         let expired_sites = match (site.deref(), model) {
-            ("lrr", Model::GFS) => init_time >= NaiveDate::from_ymd(2018, 12, 5).and_hms(0, 0, 0),
-            ("c17", Model::GFS) => init_time >= NaiveDate::from_ymd(2018, 12, 5).and_hms(0, 0, 0),
-            ("sta", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
-            ("xxpn", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
-            ("wev", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
-            ("xkza", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
-            ("mpi", Model::GFS) => init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0),
+            ("lrr", Model::GFS) => init_time >= NaiveDate::from_ymd_opt(2018, 12, 5).unwrap().and_hms_opt(0, 0, 0).unwrap(),
+            ("c17", Model::GFS) => init_time >= NaiveDate::from_ymd_opt(2018, 12, 5).unwrap().and_hms_opt(0, 0, 0).unwrap(),
+            ("sta", Model::GFS) => init_time <= NaiveDate::from_ymd_opt(2018, 12, 4).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("xxpn", Model::GFS) => init_time <= NaiveDate::from_ymd_opt(2018, 12, 4).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("wev", Model::GFS) => init_time <= NaiveDate::from_ymd_opt(2018, 12, 4).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("xkza", Model::GFS) => init_time <= NaiveDate::from_ymd_opt(2018, 12, 4).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("mpi", Model::GFS) => init_time <= NaiveDate::from_ymd_opt(2018, 12, 4).unwrap().and_hms_opt(12, 0, 0).unwrap(),
             ("kmpi", Model::GFS) => {
-                init_time <= NaiveDate::from_ymd(2018, 12, 4).and_hms(12, 0, 0)
-                    || init_time >= NaiveDate::from_ymd(2021, 3, 22).and_hms(18, 0, 0)
+                init_time <= NaiveDate::from_ymd_opt(2018, 12, 4).unwrap().and_hms_opt(12, 0, 0).unwrap()
+                    || init_time >= NaiveDate::from_ymd_opt(2021, 3, 22).unwrap().and_hms_opt(18, 0, 0).unwrap()
             }
 
             // For the site/model combos below there is sparse data further back, but it's very sparse.
-            ("pafm", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("pfyu", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("pabt", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("wev", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("wntr", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("smb", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("hmm", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("sta", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("mpi", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("wja", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("mrp", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("pamc", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("pafa", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("paeg", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("cype", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("cyyc", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("cwlb", Model::NAM) => init_time < NaiveDate::from_ymd(2012, 2, 17).and_hms(12, 0, 0),
-            ("ssy", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-            ("cwlb", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-            ("bam", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-            ("cyyc", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-            ("paeg", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-            ("cype", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-            ("pfyu", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-            ("pafa", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-            ("pamc", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-            ("pabt", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-            ("wja", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
-            ("pafm", Model::GFS) => init_time < NaiveDate::from_ymd(2012, 2, 16).and_hms(18, 0, 0),
+            ("pafm", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("pfyu", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("pabt", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("wev", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("wntr", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("smb", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("hmm", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("sta", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("mpi", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("wja", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("mrp", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("pamc", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("pafa", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("paeg", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("cype", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("cyyc", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("cwlb", Model::NAM) => init_time < NaiveDate::from_ymd_opt(2012, 2, 17).unwrap().and_hms_opt(12, 0, 0).unwrap(),
+            ("ssy", Model::GFS) => init_time < NaiveDate::from_ymd_opt(2012, 2, 16).unwrap().and_hms_opt(18, 0, 0).unwrap(),
+            ("cwlb", Model::GFS) => init_time < NaiveDate::from_ymd_opt(2012, 2, 16).unwrap().and_hms_opt(18, 0, 0).unwrap(),
+            ("bam", Model::GFS) => init_time < NaiveDate::from_ymd_opt(2012, 2, 16).unwrap().and_hms_opt(18, 0, 0).unwrap(),
+            ("cyyc", Model::GFS) => init_time < NaiveDate::from_ymd_opt(2012, 2, 16).unwrap().and_hms_opt(18, 0, 0).unwrap(),
+            ("paeg", Model::GFS) => init_time < NaiveDate::from_ymd_opt(2012, 2, 16).unwrap().and_hms_opt(18, 0, 0).unwrap(),
+            ("cype", Model::GFS) => init_time < NaiveDate::from_ymd_opt(2012, 2, 16).unwrap().and_hms_opt(18, 0, 0).unwrap(),
+            ("pfyu", Model::GFS) => init_time < NaiveDate::from_ymd_opt(2012, 2, 16).unwrap().and_hms_opt(18, 0, 0).unwrap(),
+            ("pafa", Model::GFS) => init_time < NaiveDate::from_ymd_opt(2012, 2, 16).unwrap().and_hms_opt(18, 0, 0).unwrap(),
+            ("pamc", Model::GFS) => init_time < NaiveDate::from_ymd_opt(2012, 2, 16).unwrap().and_hms_opt(18, 0, 0).unwrap(),
+            ("pabt", Model::GFS) => init_time < NaiveDate::from_ymd_opt(2012, 2, 16).unwrap().and_hms_opt(18, 0, 0).unwrap(),
+            ("wja", Model::GFS) => init_time < NaiveDate::from_ymd_opt(2012, 2, 16).unwrap().and_hms_opt(18, 0, 0).unwrap(),
+            ("pafm", Model::GFS) => init_time < NaiveDate::from_ymd_opt(2012, 2, 16).unwrap().and_hms_opt(18, 0, 0).unwrap(),
 
             _ => false,
         };

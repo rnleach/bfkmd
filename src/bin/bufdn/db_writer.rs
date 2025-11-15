@@ -1,5 +1,5 @@
-use super::{ReqInfo, StepResult};
-use bufkit_data::{Archive, BufkitDataErr, Model};
+use super::StepResult;
+use bufkit_data::{Archive, BufkitDataErr};
 use crossbeam_channel as channel;
 use std::{path::PathBuf, thread::spawn};
 
@@ -56,22 +56,3 @@ pub fn start_writer_thread(
     });
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct SaveLatestInfo {
-    site_id: String,
-    model: Model,
-}
-
-impl From<&ReqInfo> for SaveLatestInfo {
-    fn from(req: &ReqInfo) -> SaveLatestInfo {
-        let ReqInfo {
-            ref model,
-            ref site_id,
-            ..
-        } = req;
-        SaveLatestInfo {
-            site_id: site_id.clone(),
-            model: *model,
-        }
-    }
-}

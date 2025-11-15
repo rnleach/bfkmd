@@ -9,8 +9,8 @@ pub fn bail(msg: &str) -> ! {
 
 pub fn parse_date_string(dt_str: &str) -> NaiveDateTime {
     let hour: u32 = match dt_str[11..].parse() {
-        Ok(hour) => hour,
-        Err(_) => bail(&format!("Could not parse date: {}", dt_str)),
+        Ok(hour) if hour < 24 => hour,
+        Ok(_) | Err(_) => bail(&format!("Could not parse date: {}", dt_str)),
     };
 
     let date = match NaiveDate::parse_from_str(&dt_str[..10], "%Y-%m-%d") {
@@ -18,7 +18,7 @@ pub fn parse_date_string(dt_str: &str) -> NaiveDateTime {
         Err(_) => bail(&format!("Could not parse date: {}", dt_str)),
     };
 
-    date.and_hms(hour, 0, 0)
+    date.and_hms_opt(hour, 0, 0).unwrap()
 }
 
 pub fn site_id_to_station_num(arch: &Archive, id: &str) -> Result<StationNumber, StrErr> {
