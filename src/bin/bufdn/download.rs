@@ -1,6 +1,6 @@
 use super::{ReqInfo, StepResult};
 use crossbeam_channel as channel;
-use reqwest::{blocking::Client, StatusCode, Url};
+use reqwest::{StatusCode, Url, blocking::Client};
 use std::{fs, io::Read, thread::spawn};
 
 pub fn start_download_threads(

@@ -1,4 +1,4 @@
-use bfkmd::{bail, AutoDownloadListDb, TablePrinter};
+use bfkmd::{AutoDownloadListDb, TablePrinter, bail};
 use bufkit_data::{Archive, BufkitDataErr, Model, StateProv, StationNumber, StationSummary};
 use chrono::FixedOffset;
 use clap::ArgMatches;

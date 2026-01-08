@@ -1,7 +1,7 @@
 use super::sources::{IowaState, Source};
-use super::{ReqInfo, StepResult, DEFAULT_DAYS_BACK};
+use super::{DEFAULT_DAYS_BACK, ReqInfo, StepResult};
 use crate::missing_url::MissingUrlDb;
-use bfkmd::{parse_date_string, AutoDownloadListDb};
+use bfkmd::{AutoDownloadListDb, parse_date_string};
 use bufkit_data::{Archive, BufkitDataErr, Model, StationNumber};
 use chrono::{Duration, NaiveDateTime, Utc};
 use clap::ArgMatches;

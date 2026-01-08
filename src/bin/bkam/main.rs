@@ -1,5 +1,5 @@
 //! BufKit Archive Manager
-use clap::{crate_version, Arg, Command};
+use clap::{Arg, Command, crate_version};
 use dirs::home_dir;
 use std::{error::Error, path::PathBuf};
 

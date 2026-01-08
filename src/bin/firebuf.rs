@@ -1,8 +1,8 @@
 //! firebuf - Calculate fire weather indicies from soundings in your Bufkit Archive.
-use bfkmd::{bail, parse_date_string, TablePrinter};
+use bfkmd::{TablePrinter, bail, parse_date_string};
 use bufkit_data::{Archive, BufkitDataErr, Model, SiteInfo};
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike};
-use clap::{crate_version, Arg, Command};
+use clap::{Arg, Command, crate_version};
 use dirs::home_dir;
 use metfor::Quantity;
 use sounding_analysis::Sounding;
