@@ -175,7 +175,7 @@ pub fn start_generator_thread(
                     sources
                         .iter()
                         .filter_map(|src| src.build_req_info(site_id.clone(), site, model, init_time))
-                        .find(|ReqInfo { ref url, .. }| !missing_urls.is_missing(url).unwrap_or(false))
+                        .find(|ReqInfo {url, .. }| !missing_urls.is_missing(url).unwrap_or(false))
                 })
                 // Limit the number of downloads.
                 .take(1_500)
