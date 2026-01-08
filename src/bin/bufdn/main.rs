@@ -71,11 +71,13 @@ fn run() -> Result<(), Box<dyn Error>> {
                 println!("  HTTP error ({}): {}.", code, url)
             }
             Success(req) => {
+                let req_init_time_str = req.init_time.map(|r| format!("{}", r.format("%Y-%m-%d %H"))).unwrap_or(String::from(""));
                 println!(
                     "Success for {:>4} {:^6} {}.",
-                    req.site_id, req.model, req.init_time
+                    req.site_id, req.model, req_init_time_str
                 );
             }
+            FileNameParseError(msg) => println!("FileNameParse error: {}", msg),
             InitializationError(msg) => println!("Error initializing threads: {}", msg),
             _ => unreachable!(),
         }
@@ -93,23 +95,40 @@ fn handle_error_as_missing_data(
 
     let (url, init_time, msg) = match res {
         ArchiveError(ReqInfo { init_time, url, .. }, err) => {
-            (url, *init_time, format!("  {}", err))
+            if let Some(init_time) = *init_time {
+                (url, init_time, format!("  {}", err))
+            } else {
+                unreachable!()
+            }
         }
         OtherDownloadError(ReqInfo { init_time, url, .. }, err) => {
-            (url, *init_time, format!("  {}", err))
-        }
-        ParseError(ReqInfo { init_time, url, .. }, msg) => (
-            url,
-            *init_time,
-            format!("Corrupt file at URL ({}): {}", msg, url),
-        ),
-        URLNotFound(ReqInfo { init_time, url, .. }) => {
-            let msg = if *init_time < too_old_to_be_missing {
-                format!("URL missing, will not try again: {}", url)
+            let msg = format!("  {}", err);
+            if let Some(init_time) = *init_time {
+                (url, init_time, msg)
             } else {
-                format!("Try again later: {}", url)
-            };
-            (url, *init_time, msg)
+                return Ok(msg);
+            }
+        }
+        ParseError(ReqInfo { init_time, url, .. }, msg) => {
+            if let Some(init_time) = *init_time {
+                (url, init_time, format!("Corrupt file at URL ({}): {}", msg, url))
+            } else {
+                unreachable!()
+            }
+        }
+        URLNotFound(ReqInfo { init_time, url, .. }) => {
+
+            if let Some(init_time) = *init_time {
+                let msg = if init_time < too_old_to_be_missing {
+                    format!("URL missing, will not try again: {}", url)
+                } else {
+                    format!("Try again later: {}", url)
+                };
+
+                (url, init_time, msg)
+            } else {
+                unreachable!()
+            }
         }
         _ => unreachable!(),
     };
@@ -198,6 +217,14 @@ fn parse_args() -> ArgMatches {
                 .conflicts_with("create")
                 .global(true),
         )
+        .arg(
+            Arg::new("local")
+            .short('l')
+            .long("local-directory")
+            .takes_value(true)
+            .default_missing_value(".")
+            .help("Import files from a local directory.")
+        )
         .after_help(concat!(
             "To download data for a new site for the first time you must also specify the model."
         ))
@@ -208,6 +235,7 @@ fn parse_args() -> ArgMatches {
 #[derive(Debug, Clone)]
 pub enum StepResult {
     Request(ReqInfo),
+    Local(ReqInfo),
     BufkitFileAsString(ReqInfo, String), // Data, sounding loaded as text data, not parsed
     Success(ReqInfo),
     StationIdMoved {
@@ -225,6 +253,7 @@ pub enum StepResult {
     StationMovedError(ReqInfo),          // The station number wasn't what was expected.
     MissingUrlDbError(ReqInfo, String),  // Error dealing with the MissingUrlDb
     InitializationError(String),         // Error setting up threads.
+    FileNameParseError(String),          // Error parsing a file name for importing local files.
 }
 
 #[derive(Debug, Clone)]
@@ -232,6 +261,6 @@ pub struct ReqInfo {
     site_id: String,
     site: Option<StationNumber>,
     model: Model,
-    init_time: NaiveDateTime,
+    init_time: Option<NaiveDateTime>,
     url: String,
 }

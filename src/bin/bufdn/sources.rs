@@ -37,7 +37,7 @@ impl Source for IowaState {
             site_id,
             site: stn_num,
             model,
-            init_time,
+            init_time: Some(init_time),
             url,
         })
     }

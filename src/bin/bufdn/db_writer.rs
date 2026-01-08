@@ -25,7 +25,7 @@ pub fn start_writer_thread(
                     match arch.add(
                         &req_info.site_id,
                         req_info.site,
-                        Some(req_info.init_time),
+                        req_info.init_time,
                         req_info.model,
                         &data,
                     ) {
