@@ -1,7 +1,7 @@
 use super::{ReqInfo, StepResult};
 use crossbeam_channel as channel;
-use reqwest::{blocking::Client, Url, StatusCode};
-use std::{io::Read, thread::spawn, fs};
+use reqwest::{blocking::Client, StatusCode, Url};
+use std::{fs, io::Read, thread::spawn};
 
 pub fn start_download_threads(
     dl_rx: channel::Receiver<StepResult>,
@@ -39,15 +39,21 @@ pub fn start_download_threads(
                     }
                     StepResult::Local(req_info) => {
                         let ReqInfo { ref url, .. } = req_info;
-                        match Url::parse(url).map_err(|_| ()).and_then(|u| u.to_file_path()) {
-                            Ok(path) => {
-                                match fs::read_to_string(&path) {
-                                    Ok(buffer) => StepResult::BufkitFileAsString(req_info, buffer),
-                                    Err(e) => StepResult::FileNameParseError(format!("Unable to load local file {} : {}",
-                                            path.display(), e)),
-                                }
-                            }
-                            Err(_) => StepResult::FileNameParseError(String::from("Unable to decode file url"))
+                        match Url::parse(url)
+                            .map_err(|_| ())
+                            .and_then(|u| u.to_file_path())
+                        {
+                            Ok(path) => match fs::read_to_string(&path) {
+                                Ok(buffer) => StepResult::BufkitFileAsString(req_info, buffer),
+                                Err(e) => StepResult::FileNameParseError(format!(
+                                    "Unable to load local file {} : {}",
+                                    path.display(),
+                                    e
+                                )),
+                            },
+                            Err(_) => StepResult::FileNameParseError(String::from(
+                                "Unable to decode file url",
+                            )),
                         }
                     }
                     _ => step_result,

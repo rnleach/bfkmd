@@ -71,7 +71,10 @@ fn run() -> Result<(), Box<dyn Error>> {
                 println!("  HTTP error ({}): {}.", code, url)
             }
             Success(req) => {
-                let req_init_time_str = req.init_time.map(|r| format!("{}", r.format("%Y-%m-%d %H"))).unwrap_or(String::from(""));
+                let req_init_time_str = req
+                    .init_time
+                    .map(|r| format!("{}", r.format("%Y-%m-%d %H")))
+                    .unwrap_or(String::from(""));
                 println!(
                     "Success for {:>4} {:^6} {}.",
                     req.site_id, req.model, req_init_time_str
@@ -117,7 +120,6 @@ fn handle_error_as_missing_data(
             }
         }
         URLNotFound(ReqInfo { init_time, url, .. }) => {
-
             if let Some(init_time) = *init_time {
                 let msg = if init_time < too_old_to_be_missing {
                     format!("URL missing, will not try again: {}", url)
@@ -219,11 +221,11 @@ fn parse_args() -> ArgMatches {
         )
         .arg(
             Arg::new("local")
-            .short('l')
-            .long("local-directory")
-            .takes_value(true)
-            .default_missing_value(".")
-            .help("Import files from a local directory.")
+                .short('l')
+                .long("local-directory")
+                .takes_value(true)
+                .default_missing_value(".")
+                .help("Import files from a local directory."),
         )
         .after_help(concat!(
             "To download data for a new site for the first time you must also specify the model."

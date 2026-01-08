@@ -9,7 +9,7 @@ use crossbeam_channel as channel;
 use std::{
     error::Error,
     fs,
-    path::{PathBuf, Path},
+    path::{Path, PathBuf},
     str::FromStr,
     thread::spawn,
 };
@@ -22,8 +22,7 @@ pub fn start_generator_thread(
 ) -> Result<(), Box<dyn Error>> {
     let arch = Archive::connect(&root)?;
 
-    if arg_matches.occurrences_of("local") > 0
-    {
+    if arg_matches.occurrences_of("local") > 0 {
         let local_dir: &Path = arg_matches.value_of("local").map(Path::new).unwrap();
 
         let entries: Vec<_> = fs::read_dir(local_dir)?
@@ -35,8 +34,8 @@ pub fn start_generator_thread(
             .collect();
 
         spawn(move || {
-
-            entries.iter()
+            entries
+                .iter()
                 // Get the file name as a string to work with
                 .filter_map(|e| {
                     if let Some(e_str) = e.file_name().and_then(|f| f.to_str()) {
@@ -60,8 +59,9 @@ pub fn start_generator_thread(
                     (e, model, e_str)
                 })
                 // Parse the site id from the file name
-                .map(|(e, model, e_str)|{
-                    let site_id = e_str.split('.')
+                .map(|(e, model, e_str)| {
+                    let site_id = e_str
+                        .split('.')
                         .nth(0)
                         .and_then(|s| s.split('_').nth(1))
                         .map(String::from);
@@ -69,27 +69,37 @@ pub fn start_generator_thread(
                     (e, model, site_id)
                 })
                 // Build URL from the path
-                .map(|(e, model, site_id)|{
+                .map(|(e, model, site_id)| {
                     let url = reqwest::Url::from_file_path(&e);
                     (e, model, url, site_id)
                 })
-                .map(|(entry, model_opt, url_res, site_id)|{
-                    match (site_id, model_opt, url_res) {
-                        (None, _, _) => {
-                            StepResult::FileNameParseError(format!("Error parsing site id from file name: {}", entry.display()))
-                        }
-                        (_, None, _) => {
-                            StepResult::FileNameParseError(format!("Error parsing model from file name: {}", entry.display()))
-                        }
-                        (_, _, Err(e)) => {
-                            StepResult::FileNameParseError(format!("Error creating file url from file name: {}, {:?}", entry.display(), e))
-                        }
+                .map(
+                    |(entry, model_opt, url_res, site_id)| match (site_id, model_opt, url_res) {
+                        (None, _, _) => StepResult::FileNameParseError(format!(
+                            "Error parsing site id from file name: {}",
+                            entry.display()
+                        )),
+                        (_, None, _) => StepResult::FileNameParseError(format!(
+                            "Error parsing model from file name: {}",
+                            entry.display()
+                        )),
+                        (_, _, Err(e)) => StepResult::FileNameParseError(format!(
+                            "Error creating file url from file name: {}, {:?}",
+                            entry.display(),
+                            e
+                        )),
                         (Some(site_id), Some(model), Ok(url)) => {
-                            let req = ReqInfo {site_id, site: None, model, init_time: None, url: url.to_string()};
+                            let req = ReqInfo {
+                                site_id,
+                                site: None,
+                                model,
+                                init_time: None,
+                                url: url.to_string(),
+                            };
                             StepResult::Local(req)
                         }
-                    }
-                })
+                    },
+                )
                 .for_each(move |request| {
                     if generator_tx.send(request).is_err() {
                         return;
@@ -97,7 +107,6 @@ pub fn start_generator_thread(
                 });
         });
     } else {
-
         let models: Vec<Model> = if arg_matches.is_present("models") {
             arg_matches
                 .values_of("models")
