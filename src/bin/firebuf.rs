@@ -128,7 +128,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .help("Which statistics to show in the table.")
                 .long_help(concat!(
                     "Which statistics to show in the table.",
-                    " Defaults to HDW,  MaxHDW, HainesLow, HainesMid, and HainesHigh"
+                    " Defaults to HDW, MaxHDW, MinPFT"
                 )),
         )
         .arg(
@@ -145,7 +145,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .help("Which statistics to plot make a graph for.")
                 .long_help(concat!(
                     "Which statistics to plot a graph for.",
-                    " Defaults to HDW.",
+                    " Defaults to HDW and PFT.",
                     " All graphs plot all available data, but each model is on an individual axis."
                 )),
         )
@@ -159,9 +159,7 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                     "The initialization time of the model run to analyze.",
                     " Format is YYYY-MM-DD-HH. If not specified then the model run is assumed to",
                     " be the last available run in the archive."
-                ))
-                .conflicts_with("start-time")
-                .conflicts_with("end_time"),
+                )),
         )
         .arg(
             Arg::new("save-dir")
@@ -193,7 +191,6 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
                 .long_help(
                     "Set the root directory of the archive you are invoking this command for.",
                 )
-                .conflicts_with("create")
                 .global(true),
         );
 
@@ -230,8 +227,8 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .collect();
 
     if table_stats.is_empty() {
-        use crate::TableStatArg::{HainesHigh, HainesLow, HainesMid, Hdw, MaxHdw};
-        table_stats = vec![Hdw, MaxHdw, HainesLow, HainesMid, HainesHigh];
+        use crate::TableStatArg::{Hdw, MaxHdw, MinPft};
+        table_stats = vec![Hdw, MaxHdw, MinPft];
     }
 
     let mut graph_stats: Vec<GraphStatArg> = matches
@@ -242,8 +239,8 @@ fn parse_args() -> Result<CmdLineArgs, Box<dyn Error>> {
         .collect();
 
     if graph_stats.is_empty() {
-        use crate::GraphStatArg::Hdw;
-        graph_stats = vec![Hdw];
+        use crate::GraphStatArg::{Hdw, Pft};
+        graph_stats = vec![Hdw, Pft];
     }
 
     let init_time = matches.value_of("init-time").map(parse_date_string);
@@ -326,10 +323,6 @@ fn calculate_stats(
             let stat = match graph_stat {
                 Hdw => sounding_analysis::hot_dry_windy(sounding),
                 Pft => sounding_analysis::pft(sounding, 15.0).map(|val| val.unpack()),
-                HainesLow => sounding_analysis::haines_low(sounding).map(f64::from),
-                HainesMid => sounding_analysis::haines_mid(sounding).map(f64::from),
-                HainesHigh => sounding_analysis::haines_high(sounding).map(f64::from),
-                AutoHaines => sounding_analysis::haines(sounding).map(f64::from),
                 None => continue,
             };
             let stat = match stat {
@@ -372,14 +365,6 @@ fn calculate_stats(
                 Hdw => &sounding_analysis::hot_dry_windy,
                 MaxHdw => &sounding_analysis::hot_dry_windy,
                 MinPft => &|snd| sounding_analysis::pft(snd, 15.0).map(|pft| pft.unpack()),
-                HainesLow => &|snd| sounding_analysis::haines_low(snd).map(f64::from),
-                MaxHainesLow => &|snd| sounding_analysis::haines_low(snd).map(f64::from),
-                HainesMid => &|snd| sounding_analysis::haines_mid(snd).map(f64::from),
-                MaxHainesMid => &|snd| sounding_analysis::haines_mid(snd).map(f64::from),
-                HainesHigh => &|snd| sounding_analysis::haines_high(snd).map(f64::from),
-                MaxHainesHigh => &|snd| sounding_analysis::haines_high(snd).map(f64::from),
-                AutoHaines => &|snd| sounding_analysis::haines(snd).map(f64::from),
-                MaxAutoHaines => &|snd| sounding_analysis::haines(snd).map(f64::from),
                 TableStatArg::None => continue,
             };
             let stat = match stat_func(sounding) {
@@ -391,14 +376,6 @@ fn calculate_stats(
                 Hdw => &zero_z,
                 MaxHdw => &max,
                 MinPft => &min,
-                HainesLow => &zero_z,
-                MaxHainesLow => &max,
-                HainesMid => &zero_z,
-                MaxHainesMid => &max,
-                HainesHigh => &zero_z,
-                MaxHainesHigh => &max,
-                AutoHaines => &zero_z,
-                MaxAutoHaines => &max,
                 TableStatArg::None => unreachable!(),
             };
 
@@ -483,7 +460,7 @@ fn print_stats(
 
             let daily_stat_values = days.iter().map(|d| vals[d]);
             let daily_stat_values: Vec<String> = match table_stat {
-                Hdw | HainesLow | HainesMid | HainesHigh | AutoHaines => daily_stat_values
+                Hdw => daily_stat_values
                     .map(|(val, _)| format!("{:.0}", val))
                     .map(|val| {
                         if val.contains("NaN") {
@@ -646,10 +623,6 @@ enum GraphStatArg {
     Hdw,
     #[strum(serialize = "PFT")]
     Pft,
-    HainesLow,
-    HainesMid,
-    HainesHigh,
-    AutoHaines,
     None,
 }
 
@@ -674,14 +647,6 @@ enum TableStatArg {
     Hdw,
     #[strum(serialize = "MaxHDW")]
     MaxHdw,
-    HainesLow,
-    MaxHainesLow,
-    HainesMid,
-    MaxHainesMid,
-    HainesHigh,
-    MaxHainesHigh,
-    AutoHaines,
-    MaxAutoHaines,
     #[strum(serialize = "MinPFT")]
     MinPft,
     None,
