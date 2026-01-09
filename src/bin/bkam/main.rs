@@ -37,9 +37,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .long("root")
                 .takes_value(true)
                 .help("Set the root of the archive.")
-                .long_help(
-                    "Set the root directory of the archive you are invoking this command for.",
-                ).conflicts_with("create")
+                .long_help("Set the root directory of the archive you are invoking this command for.")
                 .global(true),
         ).subcommand(
             Command::new("create")
@@ -87,6 +85,18 @@ fn run() -> Result<(), Box<dyn Error>> {
                                 .help(
                                     "Only list sites that are automatically downloaded by bufdn.",
                                 ),
+                        ).arg(
+                            Arg::new("latitude")
+                                .long("latitude")
+                                .help("Only list sites near this location.")
+                                .takes_value(true)
+                                .requires("longitude"),
+                        ).arg(
+                            Arg::new("longitude")
+                                .long("longitude")
+                                .help("Only list sites near this location.")
+                                .takes_value(true)
+                                .requires("latitude"),
                         ),
                 ).subcommand(
                     Command::new("modify")

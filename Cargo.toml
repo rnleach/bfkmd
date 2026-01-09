@@ -6,7 +6,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-bufkit-data = "^0.24.0"
+bufkit-data = "^0.26.0"
 chrono = "^0.4.2"
 clap = { version = "^3.1.0", features = ["wrap_help", "cargo"]}
 crossbeam-channel = "^0.5"
@@ -16,7 +16,7 @@ itertools = "^0.14"
 metfor = "^0.10.0"
 pbr = "^1.0.1"
 reqwest = { version = "^0.13.1", features = ["blocking"] }
-rusqlite = { version = "^0.37", features = ["bundled", "chrono"], default-features = false }
+rusqlite = { version = "^0.38", features = ["bundled", "chrono"], default-features = false }
 sounding-analysis = "^0.19.1"
 sounding-bufkit = "^0.18"
 strum = "^0.27"

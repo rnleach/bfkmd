@@ -94,32 +94,80 @@ fn sites_list(
         };
 
     //
+    // Query the master list and sort it
+    //
+    let mut tlat = 0.0;
+    let mut tlon = 0.0;
+    let master_list: Vec<StationSummary> = if sub_sub_args.is_present("latitude") {  // implies longitude is also available
+        let lat = sub_sub_args.value_of("latitude")
+            .ok_or_else(|| BufkitDataErr::GeneralError(format!("Unable to parse latitude")))
+            .and_then(|lat_str| {
+                f64::from_str(lat_str)
+                    .map_err(|_| BufkitDataErr::GeneralError(format!("Unable to parse latitude: {}", lat_str)))
+            });
+
+        let lon = sub_sub_args.value_of("longitude")
+            .ok_or_else(|| BufkitDataErr::GeneralError(format!("Unable to parse longitude")))
+            .and_then(|lon_str| {
+                f64::from_str(lon_str)
+                    .map_err(|_| BufkitDataErr::GeneralError(format!("Unable to parse longitude: {}", lon_str)))
+            });
+
+        lat
+            .and_then(|lat| lon.map(|lon| (lat, lon)))
+            .and_then(|(lat, lon)| {
+                tlat = lat;
+                tlon = lon;
+                arch.station_summaries_near(lat, lon)
+            })?
+    } else {
+        let mut master_list = arch.station_summaries()?;
+
+        master_list.sort_unstable_by(|left, right| {
+            let lnum: u32 = left.station_num.into();
+            let rnum: u32 = right.station_num.into();
+
+            match (
+                left.state.map(|l| l.as_static_str()),
+                right.state.map(|r| r.as_static_str()),
+                lnum,
+                rnum,
+            ) {
+                (Some(_), None, _, _) => std::cmp::Ordering::Less,
+                (None, Some(_), _, _) => std::cmp::Ordering::Greater,
+                // Within a state, order by station number
+                (Some(left), Some(right), lnum, rnum) => match left.cmp(right) {
+                    std::cmp::Ordering::Equal => lnum.cmp(&rnum),
+                    x => x,
+                },
+                // Without a state, order by station number
+                (None, None, lnum, rnum) => lnum.cmp(&rnum),
+            }
+        });
+
+        master_list
+    };
+
+    // Haversine function in miles for the selected point
+    let distance = move |coords: &(f64, f64)| -> f64 {
+        let (clat, clon) = coords;
+        
+        let dlat = (tlat - clat).to_radians();
+        let dlon = (tlon - clon).to_radians();
+
+        let lat = tlat.to_radians();
+        let clat = clat.to_radians();
+
+        let a = f64::powi(f64::sin(dlat / 2.0), 2) + f64::powi(f64::sin(dlon / 2.0), 2) * f64::cos(lat) * f64::cos(clat);
+
+        let rad = 3958.761;
+        let c = 2.0 * f64::asin(f64::sqrt(a));
+        rad * c
+    };
+
+    //
     // Combine filters to make an iterator over the sites.
     //
-    let mut master_list: Vec<StationSummary> = arch.station_summaries()?;
-
-    master_list.sort_unstable_by(|left, right| {
-        let lnum: u32 = left.station_num.into();
-        let rnum: u32 = right.station_num.into();
-
-        match (
-            left.state.map(|l| l.as_static_str()),
-            right.state.map(|r| r.as_static_str()),
-            lnum,
-            rnum,
-        ) {
-            (Some(_), None, _, _) => std::cmp::Ordering::Less,
-            (None, Some(_), _, _) => std::cmp::Ordering::Greater,
-            // Within a state, order by station number
-            (Some(left), Some(right), lnum, rnum) => match left.cmp(right) {
-                std::cmp::Ordering::Equal => lnum.cmp(&rnum),
-                x => x,
-            },
-            // Without a state, order by station number
-            (None, None, lnum, rnum) => lnum.cmp(&rnum),
-        }
-    });
-
     let sites_iter = || {
         master_list
             .iter()
@@ -132,6 +180,20 @@ fn sites_list(
     let mut table_printer = if sites_iter().count() == 0 {
         println!("No sites matched criteria.");
         return Ok(());
+    } else if sub_sub_args.is_present("latitude") {
+        TablePrinter::new()
+            .with_title("Sites".to_owned())
+            .with_column::<String, String>("Stn Num".to_owned(), &[])
+            .with_column::<String, String>("IDs".to_owned(), &[])
+            .with_column::<String, String>("STATE".to_owned(), &[])
+            .with_column::<String, String>("NAME".to_owned(), &[])
+            .with_column::<String, String>("UTC Offset".to_owned(), &[])
+            .with_column::<String, String>("Auto Download".to_owned(), &[])
+            .with_column::<String, String>("MODELS".to_owned(), &[])
+            .with_column::<String, String>("NOTES".to_owned(), &[])
+            .with_column::<String, String>("Coords".to_owned(), &[])
+            .with_column::<String, f64>("Distance (mi)".to_owned(), &[])
+            .with_column::<String, String>("Num files".to_owned(), &[])
     } else {
         TablePrinter::new()
             .with_title("Sites".to_owned())
@@ -143,6 +205,7 @@ fn sites_list(
             .with_column::<String, String>("Auto Download".to_owned(), &[])
             .with_column::<String, String>("MODELS".to_owned(), &[])
             .with_column::<String, String>("NOTES".to_owned(), &[])
+            .with_column::<String, String>("Coords".to_owned(), &[])
             .with_column::<String, String>("Num files".to_owned(), &[])
     };
 
@@ -165,17 +228,36 @@ fn sites_list(
         };
         let models = site.models_as_string();
         let num_files = site.number_of_files;
-        let row = vec![
-            station_num.to_string(),
-            ids.to_string(),
-            state.to_string(),
-            name.to_string(),
-            offset,
-            auto_dl.to_string(),
-            models.to_string(),
-            notes.to_string(),
-            num_files.to_string(),
-        ];
+        let coords = site.coords_as_string();
+        let row = if sub_sub_args.is_present("latitude") {
+            let d = format!("{:.2}", distance(&site.coords[0]));
+            vec![
+                station_num.to_string(),
+                ids.to_string(),
+                state.to_string(),
+                name.to_string(),
+                offset,
+                auto_dl.to_string(),
+                models.to_string(),
+                notes.to_string(),
+                coords.to_string(),
+                d,
+                num_files.to_string(),
+            ]
+        } else {
+            vec![
+                station_num.to_string(),
+                ids.to_string(),
+                state.to_string(),
+                name.to_string(),
+                offset,
+                auto_dl.to_string(),
+                models.to_string(),
+                notes.to_string(),
+                coords.to_string(),
+                num_files.to_string(),
+            ]
+        };
         table_printer.add_row(row);
     }
 
