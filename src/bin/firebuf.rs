@@ -10,7 +10,8 @@ use sounding_bufkit::BufkitData;
 use std::{collections::HashMap, error::Error, fs::File, path::PathBuf, str::FromStr};
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, EnumString, IntoStaticStr};
-use textplots::{Chart, Plot, Shape};
+use textplots::{Chart, Shape, ColorPlot};
+use rgb::RGB8;
 
 fn main() {
     if let Err(e) = run() {
@@ -513,31 +514,64 @@ fn print_stats(
             continue;
         };
 
-        let base_hour = if base_time.hour() == 0 {
-            24f32
-        } else {
-            base_time.hour() as f32
-        };
-
-        let values_start = [
-            (0.0, g_stat.default_max_y()),
-            (1.0 / 24.0, g_stat.default_min_y()),
-            ((base_hour - 1.0) / 24.0, g_stat.default_min_y()),
-        ];
+        let mut max_x = 0.0f32;
+        let mut max_y = g_stat.default_max_y();
+        let mut min_y = g_stat.default_min_y();
         let values_iter = vals.iter().map(|&(v_time, val)| {
-            (
-                ((v_time - base_time).num_hours() as f32 + base_hour) / 24.0,
-                val as f32,
-            )
+            let x = (v_time - base_time).num_hours() as f32;
+            let y = val as f32;
+
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            min_y = min_y.min(y);
+
+            (x, y)
         });
 
-        let values_plot: Vec<(f32, f32)> =
-            values_start.iter().cloned().chain(values_iter).collect();
+        let values_plot: Vec<(f32, f32)> = values_iter.collect();
+
+        let base_hour = base_time.hour() as f32;
+        let mut d_plot: Vec<(f32, f32)> = vec![];
+        for i in 0..20 {
+            let hour = (i * 24 - 6) as f32 - base_hour;
+
+            if hour > max_x { break; }
+            if hour < 0.0f32 { continue; }
+
+            if hour > max_x { break; }
+            if i % 2 == 0 {
+                d_plot.push((hour, min_y));
+                d_plot.push((hour, max_y));
+            } else {
+                d_plot.push((hour, max_y));
+                d_plot.push((hour, min_y));
+            }
+        }
+
+        let mut n_plot: Vec<(f32, f32)> = vec![];
+        for i in 0..20 {
+
+            let hour = (i * 24 - 18) as f32 - base_hour;
+
+            if hour > max_x { break; }
+            if hour < 0.0f32 { continue; }
+
+            if i % 2 == 0 {
+                n_plot.push((hour, min_y));
+                n_plot.push((hour, max_y));
+            } else {
+                n_plot.push((hour, max_y));
+                n_plot.push((hour, min_y));
+            }
+        }
+
+        let b_plot: Vec<(f32, f32)> = vec![(0.0, min_y), (max_x, min_y), (max_x, max_y), (0.0, max_y), (0.0, min_y)];
 
         println!(
             "{:^78}",
             format!(
-                "{} {} for {} ({})",
+                "{} {} {} for {} ({})",
+                base_time,
                 model,
                 Into::<&str>::into(g_stat),
                 site.description(),
@@ -545,10 +579,15 @@ fn print_stats(
             )
         );
 
-        Chart::new(160, 45, 0.0, 9.0)
-            .lineplot(&Shape::Steps(values_plot.as_slice()))
+        let mut chart = Chart::new_with_y_range(180, 65, 0.0, max_x, min_y, max_y);
+        chart
+            .linecolorplot(&Shape::Lines(n_plot.as_slice()), RGB8{r: 110, g: 0, b: 250})
+            .linecolorplot(&Shape::Lines(d_plot.as_slice()), RGB8{r: 220, g: 220, b: 220})
+            .linecolorplot(&Shape::Lines(b_plot.as_slice()), RGB8{r: 255, g: 255, b: 255})
+            .linecolorplot(&Shape::Lines(values_plot.as_slice()), RGB8{r: 220, g: 220, b: 0})
             .nice();
     }
+
     //
     // END GRAPHS
     //
@@ -635,8 +674,9 @@ impl GraphStatArg {
         use crate::GraphStatArg::*;
 
         match self {
-            Hdw => 700.0,
-            _ => 6.0,
+            Hdw => 700.0f32,
+            Pft => 2000.0f32,
+            _ => 0.0,
         }
     }
 }

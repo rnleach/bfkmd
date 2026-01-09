@@ -16,6 +16,7 @@ itertools = "^0.14"
 metfor = "^0.10.0"
 pbr = "^1.0.1"
 reqwest = { version = "^0.13.1", features = ["blocking"] }
+rgb = "^0.8.0"
 rusqlite = { version = "^0.38", features = ["bundled", "chrono"], default-features = false }
 sounding-analysis = "^0.19.1"
 sounding-bufkit = "^0.18"
