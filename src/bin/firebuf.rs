@@ -522,8 +522,8 @@ fn print_stats(
             let y = val as f32;
 
             max_x = max_x.max(x);
-            max_y = max_y.max(y);
-            min_y = min_y.min(y);
+            max_y = max_y.max(y * 1.05);
+            min_y = min_y.min(y * 0.95);
 
             (x, y)
         });
