@@ -115,7 +115,7 @@ pub fn start_generator_thread(
                 .filter_map(Result::ok)
                 .collect()
         } else {
-            Model::iter().collect()
+            Model::iter().filter(|&m| m != Model::NAM).collect()
         };
 
         let days_back = arg_matches
@@ -246,7 +246,7 @@ fn list_of_auto_download(
 
     let mut dl_id_stations: Vec<(String, Option<StationNumber>, Model)> = Vec::new();
 
-    for model in Model::iter() {
+    for model in Model::iter().filter(|&m| m != Model::NAM) {
         arch.sites_and_ids_for(model)?
             .into_iter()
             .filter(|(site, _id)| dl_stations.binary_search(&site.station_num).is_ok())
